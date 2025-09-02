@@ -6,8 +6,6 @@ app=FastAPI()
 SECRET=b"..."
 TOKENS={}
 USERS={"alice":argon2.hash("pass")}
-app = FastAPI()
-
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=5, max_length=20)
     password: str = Field(..., min_length=8, max_length=128)
