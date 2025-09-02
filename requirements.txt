@@ -1,0 +1,4 @@
+pyjwt
+fastapi
+passlib
+pydantic

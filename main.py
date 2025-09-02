@@ -1,6 +1,4 @@
 import time, jwt, secrets
-from dataclasses import Field
-
 from fastapi import FastAPI, HTTPException, status
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
