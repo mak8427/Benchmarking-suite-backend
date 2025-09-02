@@ -26,6 +26,11 @@ async def register(payload: UserCreate):
     USERS[payload.username]=argon2.hash(payload.password)
     rid = secrets.token_urlsafe(32)
     TOKENS[rid]={"sub":payload.username,"exp":time.time()+30*86400}
+
+    #Save user to plain text, for now
+    with open("users.txt","a") as f:
+        f.write(f"{payload.username}:{argon2.hash(payload.password)}\n")
+        f.close()
     return {"access":make_access(payload.username), "refresh":rid}
 
 
@@ -41,6 +46,12 @@ def make_access(sub):
 
 @app.post("/auth/password")
 def login(u:str,p:str):
+    #load from plain text
+    with open("users.txt","r") as f:
+        for line in f:
+            user,hash=line.split(":")
+            USERS[user]=hash.strip()
+        f.close()
     if u not in USERS or not argon2.verify(p, USERS[u]):
         raise HTTPException(401)
     rid=secrets.token_urlsafe(32)
