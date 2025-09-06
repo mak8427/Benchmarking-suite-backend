@@ -9,3 +9,15 @@ GET http://127.0.0.1:8000/hello/User
 Accept: application/json
 
 ###
+
+POST http://127.0.0.1:8000/auth/register
+Content-Type: application/json
+
+{
+  "username": "figone32",
+  "password": "figo3!231"
+}
+###
+# Correct: use query parameters (no JSON body)
+POST http://127.0.0.1:8000/auth/password?u=figone32&p=figo3%21231
+Accept: application/json

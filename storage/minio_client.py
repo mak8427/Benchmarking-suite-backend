@@ -22,7 +22,8 @@ BUCKET_TOKEN_TTL_MIN = int(os.getenv("BUCKET_TOKEN_TTL_MIN", "60"))  # 60 minute
 _slug_re = re.compile(r"[^a-z0-9-]+")
 
 def _sanitize_bucket_name(username: str) -> str:
-    """Convert a username to a safe S3 bucket name. Removes unsafe characters and enforces length limits.
+    """
+    Convert a username to a safe S3 bucket name. Removes unsafe characters and enforces length limits.
     3-63 chars, lowercase letters, numbers, dashes, no leading/trailing dash
     """
     slug = _slug_re.sub("-", username.strip().lower()).strip("-")
