@@ -2,3 +2,4 @@ pyjwt
 fastapi
 passlib
 pydantic
+minio
