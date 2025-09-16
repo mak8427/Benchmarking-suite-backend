@@ -7,7 +7,9 @@ import logging
 
 
 app = FastAPI()
-
+SECRET = b"..."
+TOKENS = {}
+USERS = {"alice": argon2.hash("pass")}
 
 def logging_config():
     logging.basicConfig(
@@ -21,9 +23,6 @@ def logging_config():
 if __name__ == "__main__":
     logging_config()
     logging.info("Logging initialized.")
-    SECRET = b"..."
-    TOKENS = {}
-    USERS = {"alice": argon2.hash("pass")}
     logging.info("Application started with initial users: %s", list(USERS.keys()))
 
 class UserCreate(BaseModel):
