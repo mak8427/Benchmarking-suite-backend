@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 from storage.minio_client import make_bucket_token, presigned_put_url
 import logging
 
-import logging
+
+app = FastAPI()
+
 
 def logging_config():
     logging.basicConfig(
@@ -19,7 +21,6 @@ def logging_config():
 if __name__ == "__main__":
     logging_config()
     logging.info("Logging initialized.")
-    app = FastAPI()
     SECRET = b"..."
     TOKENS = {}
     USERS = {"alice": argon2.hash("pass")}
