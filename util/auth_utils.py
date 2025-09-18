@@ -1,17 +1,23 @@
 import re
+from typing import Annotated
+
 import jwt
 from fastapi import HTTPException, Header
-from main import SECRET
+from jupyter_server.auth import User
+SECRET = b"..."
 
-
-def current_user(authorization: str = Header(...)):
+def current_user(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None) -> dict:
+    if not authorization:
+        raise HTTPException(401, "missing Authorization header")
     try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer": raise ValueError("bad scheme")
+        scheme, token = authorization.split(" ", 1)
+        if scheme.lower() != "bearer":
+            raise ValueError("bad scheme")
         payload = jwt.decode(token, SECRET, algorithms=["HS256"])
         return {"username": payload["sub"]}
     except Exception:
-        raise HTTPException(status_code=401, detail="invalid or expired token")
+        raise HTTPException(401, "invalid or expired token")
 
 def sanitize(name: str) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
