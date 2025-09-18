@@ -1,12 +1,42 @@
+import json
 import os
 import secrets
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
 httpx = pytest.importorskip("httpx")
 
-BASE_URL = os.getenv("REMOTE_BASE_URL", "http://141.5.110.112:7800")
+
+def _discover_base_url() -> str | None:
+    env_value = os.getenv("REMOTE_BASE_URL")
+    if env_value:
+        return env_value
+
+    for candidate in (
+        Path("http-client.private.env.json"),
+        Path("http-client.env.json"),
+    ):
+        if not candidate.exists():
+            continue
+        try:
+            with candidate.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            raw = data.get("remote", {}).get("baseUrl") or data.get("remote", {}).get("base_url")
+            base_url = raw.strip() if isinstance(raw, str) else None
+            if base_url:
+                return base_url
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    return None
+
+
+_discovered_url = _discover_base_url()
+DEFAULT_BASE_URL = "http://localhost:7800"
+BASE_URL = _discovered_url or DEFAULT_BASE_URL
+USING_DEFAULT_BASE = _discovered_url is None
 
 
 @dataclass
@@ -62,7 +92,8 @@ def remote_client():
         response.raise_for_status()
     except Exception as exc:  # pragma: no cover - executed only when offline
         session.close()
-        pytest.skip(f"Remote server {BASE_URL} unavailable: {exc}")
+        hint = "Set REMOTE_BASE_URL or update http-client.private.env.json" if USING_DEFAULT_BASE else "Remote server unreachable"
+        pytest.skip(f"Remote server {BASE_URL} unavailable: {exc}. {hint}")
     yield session
     session.close()
 

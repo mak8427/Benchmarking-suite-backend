@@ -1,0 +1,45 @@
+@baseUrl = {{remote.baseUrl}}
+@objectName = reports/demo.csv
+
+### Presign Upload (Requires prior auth run)
+POST {{baseUrl}}/storage/presign/upload?object_name={{objectName}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Upload presign returns URL", function() {
+    client.assert(response.status === 200);
+    client.assert(response.body.url);
+    client.assert(response.body.key.startsWith(client.global.get("username") + "/"));
+    client.global.set("presignedPut", response.body.url);
+}); %}
+
+### Presign Download
+GET {{baseUrl}}/storage/presign/download?object_name={{objectName}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Download presign returns URL", function() {
+    client.assert(response.status === 200);
+    client.assert(response.body.url);
+    client.assert(response.body.key.startsWith(client.global.get("username") + "/"));
+    client.global.set("presignedGet", response.body.url);
+}); %}
+
+### List Objects For Current User
+GET {{baseUrl}}/storage/list
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("List returns objects", function() {
+    client.assert(response.status === 200);
+    client.assert(Array.isArray(response.body.objects));
+}); %}
+
+### Presign Upload With Unsafe Name (Should Fail)
+POST {{baseUrl}}/storage/presign/upload?object_name=../secret.txt
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Unsafe name rejected", function() {
+    client.assert(response.status === 400);
+}); %}

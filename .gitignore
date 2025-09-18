@@ -2,3 +2,4 @@
 tests/test_private.htty
 AGENTS.md
 process.log
+http-client.private.env.json
