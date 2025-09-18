@@ -1,38 +1,54 @@
+import os
+import re
 import time, jwt, secrets
-from fastapi import FastAPI, HTTPException, status, Header
+from datetime import timedelta
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, status, Header, Query, Depends
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
-from storage.minio_client import make_bucket_token, presigned_put_url
+from storage.minio_client import BUCKET, PUBLIC_MINIO, ADMIN_MINIO
 import logging
 
-import logging
+from util.auth_utils import sanitize, current_user
 
-def logging_config():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler("process.log", encoding="utf-8"),  # Note the encoding parameter
-            logging.StreamHandler(),
-        ],
-    )
-if __name__ == "__main__":
-    logging_config()
-    logging.info("Logging initialized.")
-    app = FastAPI()
-    SECRET = b"..."
-    TOKENS = {}
-    USERS = {"alice": argon2.hash("pass")}
-    logging.info("Application started with initial users: %s", list(USERS.keys()))
+# Configure logging at module level
+LOG_FILE = Path(os.getenv("LOG_FILE_PATH", "process.log"))
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+SECRET = b"..."
+TOKENS = {}
+USERS = {"alice": argon2.hash("pass")}
+USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
+
+
+def get_public_minio_client():
+    return PUBLIC_MINIO
+
+
+def get_admin_minio_client():
+    return ADMIN_MINIO
+
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=5, max_length=20)
     password: str = Field(..., min_length=8, max_length=128)
 
+
 @app.get("/")
 async def root():
-    logging.info("Root endpoint accessed.")
+    logger.info("Root endpoint accessed")
     return {"message": "Hello World"}
+
 
 def make_access(sub):
     """
@@ -40,36 +56,35 @@ def make_access(sub):
     :param sub:
     :return:
     """
-    logging.info("Creating access token for: %s", sub)
+    logger.debug(f"Creating access token for user: {sub}")
     return jwt.encode({"sub": sub, "scope": "upload", "exp": time.time() + 600}, SECRET, "HS256")
+
 
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate):
-    logging.info("Register endpoint called for username: %s", payload.username)
+    logger.info(f"Registration attempt for username: {payload.username}")
+
     if payload.username in USERS:
-        logging.warning("Attempt to register already existing username: %s", payload.username)
+        logger.warning(f"Registration failed: Username {payload.username} already exists")
         raise HTTPException(status_code=409, detail="Username already registered")
 
     USERS[payload.username] = argon2.hash(payload.password)
     rid = secrets.token_urlsafe(32)
     TOKENS[rid] = {"sub": payload.username, "exp": time.time() + 30 * 86400}
-    logging.info("User %s created with refresh token id: %s", payload.username, rid)
 
     # Save user to plain text, for now
-    with open("users.txt", "a") as f:
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with USERS_FILE.open("a", encoding="utf-8") as f:
         f.write(f"{payload.username}:{USERS[payload.username]}\n")
-    logging.info("User %s saved to users.txt", payload.username)
+        logger.debug(f"User {payload.username} saved to users.txt")
 
-    # Create per-user bucket and mint a bucket token for uploads
-    bucket_token, bucket_name = make_bucket_token(payload.username)
-    logging.info("Bucket created for user %s: %s", payload.username, bucket_name)
 
+    logger.info(f"User {payload.username} registered successfully")
     return {
         "access": make_access(payload.username),
-        "refresh": rid,
-        "bucket": bucket_name,
-        "bucket_token": bucket_token,
+        "refresh": rid
     }
+
 
 @app.post("/auth/password")
 def login(u: str, p: str):
@@ -80,46 +95,111 @@ def login(u: str, p: str):
     :param p:
     :return:
     """
-    logging.info("Login attempt for username: %s", u)
+    logger.info(f"Login attempt for username: {u}")
+
     try:
-        with open("users.txt", "r") as f:
+        with USERS_FILE.open("r", encoding="utf-8") as f:
             for line in f:
                 user, hashv = line.split(":")
                 USERS[user] = hashv.strip()
+        logger.debug("User data loaded from users.txt")
     except FileNotFoundError:
-        logging.error("users.txt not found during login attempt.")
+        logger.warning("users.txt not found, using in-memory user data only")
         pass
 
     if u not in USERS or not argon2.verify(p, USERS[u]):
-        logging.warning("Login failed for user: %s", u)
+        logger.warning(f"Failed login attempt for username: {u}")
         raise HTTPException(401)
 
     rid = secrets.token_urlsafe(32)
     TOKENS[rid] = {"sub": u, "exp": time.time() + 30 * 86400}
-    logging.info("Login successful for user: %s, refresh id: %s", u, rid)
+    logger.info(f"User {u} logged in successfully")
     return {"access": make_access(u), "refresh": rid}
+
 
 @app.post("/auth/refresh")
 def refresh(rid: str):
-    logging.info("Refresh token requested: %s", rid)
+    logger.info("Token refresh attempt")
     t = TOKENS.get(rid)
     if not t or t["exp"] < time.time():
-        logging.warning("Refresh token invalid or expired: %s", rid)
+        logger.warning(f"Invalid or expired refresh token")
         raise HTTPException(401)
+
     new = secrets.token_urlsafe(32)
     TOKENS[new] = t
     TOKENS.pop(rid, None)
-    logging.info("Refresh token rotated: old=%s, new=%s", rid, new)
+    logger.info(f"Successfully refreshed token for user: {t['sub']}")
     return {"access": make_access(t["sub"]), "refresh": new}
 
-# Exchange a bucket token for a presigned PUT URL
-@app.post("/storage/upload_url")
-def create_upload_url(object_name: str, x_bucket_token: str = Header(..., alias="X-Bucket-Token")):
-    logging.info("Presigned PUT URL requested for object: %s", object_name)
+
+
+
+@app.post("/storage/presign/upload")
+def create_upload_url(
+    object_name: str = Query(...),
+    user=Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+):
+    safe = sanitize(object_name)
+    key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
-        url = presigned_put_url(x_bucket_token, object_name, expires_seconds=600)
-        logging.info("Presigned PUT URL generated for object: %s", object_name)
-        return {"url": url, "expires_in": 600}
+        url = minio_client.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
+        logger.info(f"presigned PUT for {key}")
+        return {"key": key, "url": url, "expires_in": 600}
     except Exception as e:
-        logging.error("Failed to generate presigned PUT URL: %s", str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"presign failed for {key}: {e}")
+        raise HTTPException(400, "failed to create upload URL")
+
+
+
+@app.get("/storage/presign/download")
+def create_download_url(
+    object_name: str = Query(...),
+    user=Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+):
+    safe = sanitize(object_name)
+    key = f"{user['username']}/{safe}"
+    try:
+        url = minio_client.presigned_get_object(BUCKET, key, expires=timedelta(minutes=30))
+        logger.info(f"presigned GET for {key}")
+        return {"key": key, "url": url, "expires_in": 600}
+    except Exception as e:
+        logger.error(f"download presign failed for {key}: {e}")
+        raise HTTPException(400, "failed to create download URL")
+
+
+@app.get("/storage/list")
+def list_objects(
+    user=Depends(current_user),
+    minio_client=Depends(get_admin_minio_client),
+):
+    prefix = f"{user['username']}/"
+    objects = []
+    try:
+        for obj in minio_client.list_objects(BUCKET, prefix=prefix, recursive=True):
+            if not getattr(obj, "object_name", "").startswith(prefix):
+                continue
+            objects.append(
+                {
+                    "key": obj.object_name,
+                    "size": getattr(obj, "size", 0),
+                    "last_modified": getattr(obj, "last_modified", None).isoformat()
+                    if getattr(obj, "last_modified", None)
+                    else None,
+                }
+            )
+        logger.info(f"listed objects for {user['username']}: {len(objects)} items")
+        return {"objects": objects}
+    except Exception as e:
+        logger.error(f"list objects failed for {user['username']}: {e}")
+        raise HTTPException(400, "failed to list objects")
+
+
+
+# This block only runs when the script is executed directly
+if __name__ == "__main__":
+    logger.info("Starting application in direct execution mode")
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
