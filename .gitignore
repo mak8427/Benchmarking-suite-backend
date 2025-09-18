@@ -1,2 +1,3 @@
 /.idea
-tests/test_private.http
+tests/test_private.htty
+AGENTS.md
