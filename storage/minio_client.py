@@ -7,13 +7,19 @@ from minio import Minio
 from minio.error import S3Error
 import jwt
 from jwt import InvalidTokenError
-MINIO = Minio(
-    os.getenv("MINIO_ENDPOINT", "localhost:9000"),
+ADMIN_MINIO = Minio(
+    os.getenv("MINIO_ADMIN_ENDPOINT", "127.0.0.1:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY"),
     secret_key=os.getenv("MINIO_SECRET_KEY"),
-    secure=os.getenv("MINIO_SECURE", "false").lower() == "true",
+    secure=False,
 )
 
+PUBLIC_MINIO = Minio(
+    os.getenv("MINIO_PUBLIC_ENDPOINT", "141.5.110.112:9000"),  # or minio.example.org
+    access_key=os.getenv("MINIO_ACCESS_KEY"),
+    secret_key=os.getenv("MINIO_SECRET_KEY"),
+    secure=False,  # set True if you expose HTTPS
+)
 BUCKET_PREFIX = os.getenv("MINIO_BUCKET_PREFIX", "user-")
 ISSUER = os.getenv("BUCKET_TOKEN_ISS", "auth-service")
 BUCKET_TOKEN_SECRET = os.getenv("BUCKET_TOKEN_SECRET", os.getenv("JWT_SECRET", "CHANGE_ME"))
