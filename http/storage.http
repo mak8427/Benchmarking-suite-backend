@@ -1,4 +1,4 @@
-@baseUrl = {{remote.baseUrl}}
+@baseUrl = {{baseUrl}}
 @objectName = reports/demo.csv
 
 ### Presign Upload (Requires prior auth run)
