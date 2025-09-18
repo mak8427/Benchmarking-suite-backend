@@ -1,6 +1,8 @@
+import os
 import re
 import time, jwt, secrets
 from datetime import timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status, Header, Query, Depends
 from passlib.hash import argon2
@@ -11,11 +13,12 @@ import logging
 from util.auth_utils import sanitize, current_user
 
 # Configure logging at module level
+LOG_FILE = Path(os.getenv("LOG_FILE_PATH", "process.log"))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("process.log", encoding="utf-8"),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
@@ -25,6 +28,15 @@ app = FastAPI()
 SECRET = b"..."
 TOKENS = {}
 USERS = {"alice": argon2.hash("pass")}
+USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
+
+
+def get_public_minio_client():
+    return PUBLIC_MINIO
+
+
+def get_admin_minio_client():
+    return ADMIN_MINIO
 
 
 class UserCreate(BaseModel):
@@ -61,7 +73,8 @@ async def register(payload: UserCreate):
     TOKENS[rid] = {"sub": payload.username, "exp": time.time() + 30 * 86400}
 
     # Save user to plain text, for now
-    with open("users.txt", "a") as f:
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with USERS_FILE.open("a", encoding="utf-8") as f:
         f.write(f"{payload.username}:{USERS[payload.username]}\n")
         logger.debug(f"User {payload.username} saved to users.txt")
 
@@ -85,7 +98,7 @@ def login(u: str, p: str):
     logger.info(f"Login attempt for username: {u}")
 
     try:
-        with open("users.txt", "r") as f:
+        with USERS_FILE.open("r", encoding="utf-8") as f:
             for line in f:
                 user, hashv = line.split(":")
                 USERS[user] = hashv.strip()
@@ -122,16 +135,65 @@ def refresh(rid: str):
 
 
 @app.post("/storage/presign/upload")
-def create_upload_url(object_name: str = Query(...), user=Depends(current_user)):
+def create_upload_url(
+    object_name: str = Query(...),
+    user=Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+):
     safe = sanitize(object_name)
     key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
-        url = PUBLIC_MINIO.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
+        url = minio_client.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
         logger.info(f"presigned PUT for {key}")
         return {"key": key, "url": url, "expires_in": 600}
     except Exception as e:
         logger.error(f"presign failed for {key}: {e}")
         raise HTTPException(400, "failed to create upload URL")
+
+
+
+@app.get("/storage/presign/download")
+def create_download_url(
+    object_name: str = Query(...),
+    user=Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+):
+    safe = sanitize(object_name)
+    key = f"{user['username']}/{safe}"
+    try:
+        url = minio_client.presigned_get_object(BUCKET, key, expires=timedelta(minutes=30))
+        logger.info(f"presigned GET for {key}")
+        return {"key": key, "url": url, "expires_in": 600}
+    except Exception as e:
+        logger.error(f"download presign failed for {key}: {e}")
+        raise HTTPException(400, "failed to create download URL")
+
+
+@app.get("/storage/list")
+def list_objects(
+    user=Depends(current_user),
+    minio_client=Depends(get_admin_minio_client),
+):
+    prefix = f"{user['username']}/"
+    objects = []
+    try:
+        for obj in minio_client.list_objects(BUCKET, prefix=prefix, recursive=True):
+            if not getattr(obj, "object_name", "").startswith(prefix):
+                continue
+            objects.append(
+                {
+                    "key": obj.object_name,
+                    "size": getattr(obj, "size", 0),
+                    "last_modified": getattr(obj, "last_modified", None).isoformat()
+                    if getattr(obj, "last_modified", None)
+                    else None,
+                }
+            )
+        logger.info(f"listed objects for {user['username']}: {len(objects)} items")
+        return {"objects": objects}
+    except Exception as e:
+        logger.error(f"list objects failed for {user['username']}: {e}")
+        raise HTTPException(400, "failed to list objects")
 
 
 

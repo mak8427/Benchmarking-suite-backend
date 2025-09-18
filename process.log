@@ -1,0 +1,312 @@
+2025-09-16 15:19:54,535 [INFO] Logging initialized.
+2025-09-16 15:19:54,569 [INFO] Application started with initial users: ['alice']
+2025-09-16 15:20:03,330 [INFO] Logging initialized.
+2025-09-16 15:20:03,364 [INFO] Application started with initial users: ['alice']
+2025-09-16 18:35:24,498 [INFO] Starting application in direct execution mode
+2025-09-16 18:38:13,015 [INFO] Root endpoint accessed
+2025-09-18 10:54:32,151 [INFO] Starting application in direct execution mode
+2025-09-18 12:27:37,505 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,539 [INFO] User user123 registered successfully
+2025-09-18 12:27:37,539 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,541 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,573 [INFO] User user123 registered successfully
+2025-09-18 12:27:37,574 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,575 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,575 [WARNING] Registration failed: Username user123 already exists
+2025-09-18 12:27:37,575 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:27:37,577 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,610 [INFO] User user123 registered successfully
+2025-09-18 12:27:37,610 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,611 [INFO] Login attempt for username: user123
+2025-09-18 12:27:37,644 [INFO] User user123 logged in successfully
+2025-09-18 12:27:37,645 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=strongPASS1 "HTTP/1.1 200 OK"
+2025-09-18 12:27:37,647 [INFO] Login attempt for username: nobody
+2025-09-18 12:27:37,647 [WARNING] users.txt not found, using in-memory user data only
+2025-09-18 12:27:37,647 [WARNING] Failed login attempt for username: nobody
+2025-09-18 12:27:37,647 [INFO] HTTP Request: POST http://testserver/auth/password?u=nobody&p=nope1234 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:27:37,649 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,681 [INFO] User user123 registered successfully
+2025-09-18 12:27:37,682 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,683 [INFO] Login attempt for username: user123
+2025-09-18 12:27:37,715 [WARNING] Failed login attempt for username: user123
+2025-09-18 12:27:37,716 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=wrongpass1 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:27:37,717 [INFO] Registration attempt for username: user123
+2025-09-18 12:27:37,750 [INFO] User user123 registered successfully
+2025-09-18 12:27:37,751 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,752 [INFO] Token refresh attempt
+2025-09-18 12:27:37,752 [INFO] Successfully refreshed token for user: user123
+2025-09-18 12:27:37,753 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=zuclRfxNDcu6zWEm1k8MOrxBFYKIRhvhO3anxpAJPC4 "HTTP/1.1 200 OK"
+2025-09-18 12:27:37,754 [INFO] Token refresh attempt
+2025-09-18 12:27:37,755 [WARNING] Invalid or expired refresh token
+2025-09-18 12:27:37,755 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=does-not-exist "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:27:37,757 [INFO] Token refresh attempt
+2025-09-18 12:27:37,757 [WARNING] Invalid or expired refresh token
+2025-09-18 12:27:37,757 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=expired-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:27:37,759 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:27:37,790 [INFO] User storageuser registered successfully
+2025-09-18 12:27:37,791 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,792 [INFO] presigned PUT for storageuser/report.csv
+2025-09-18 12:27:37,793 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:27:37,795 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:27:37,796 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:27:37,827 [INFO] User storageuser registered successfully
+2025-09-18 12:27:37,828 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,830 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:27:37,831 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:27:37,864 [INFO] User storageuser registered successfully
+2025-09-18 12:27:37,865 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:27:37,866 [ERROR] presign failed for storageuser/report.csv: minio down
+2025-09-18 12:27:37,867 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 400 Bad Request"
+2025-09-18 12:27:59,982 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,017 [INFO] User user123 registered successfully
+2025-09-18 12:28:00,017 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,019 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,054 [INFO] User user123 registered successfully
+2025-09-18 12:28:00,055 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,056 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,056 [WARNING] Registration failed: Username user123 already exists
+2025-09-18 12:28:00,057 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:28:00,059 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,097 [INFO] User user123 registered successfully
+2025-09-18 12:28:00,098 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,099 [INFO] Login attempt for username: user123
+2025-09-18 12:28:00,132 [INFO] User user123 logged in successfully
+2025-09-18 12:28:00,132 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=strongPASS1 "HTTP/1.1 200 OK"
+2025-09-18 12:28:00,134 [INFO] Login attempt for username: nobody
+2025-09-18 12:28:00,134 [WARNING] users.txt not found, using in-memory user data only
+2025-09-18 12:28:00,134 [WARNING] Failed login attempt for username: nobody
+2025-09-18 12:28:00,135 [INFO] HTTP Request: POST http://testserver/auth/password?u=nobody&p=nope1234 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:28:00,137 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,169 [INFO] User user123 registered successfully
+2025-09-18 12:28:00,169 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,170 [INFO] Login attempt for username: user123
+2025-09-18 12:28:00,202 [WARNING] Failed login attempt for username: user123
+2025-09-18 12:28:00,203 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=wrongpass1 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:28:00,205 [INFO] Registration attempt for username: user123
+2025-09-18 12:28:00,237 [INFO] User user123 registered successfully
+2025-09-18 12:28:00,238 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,239 [INFO] Token refresh attempt
+2025-09-18 12:28:00,239 [INFO] Successfully refreshed token for user: user123
+2025-09-18 12:28:00,240 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=ww02sd8G0gxVfkCXm25uHMKHc-ARyMAPEtqa2UsI6QM "HTTP/1.1 200 OK"
+2025-09-18 12:28:00,241 [INFO] Token refresh attempt
+2025-09-18 12:28:00,241 [WARNING] Invalid or expired refresh token
+2025-09-18 12:28:00,242 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=does-not-exist "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:28:00,244 [INFO] Token refresh attempt
+2025-09-18 12:28:00,244 [WARNING] Invalid or expired refresh token
+2025-09-18 12:28:00,244 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=expired-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:28:00,246 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:28:00,277 [INFO] User storageuser registered successfully
+2025-09-18 12:28:00,277 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,279 [INFO] presigned PUT for storageuser/report.csv
+2025-09-18 12:28:00,279 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:28:00,281 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:28:00,283 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:28:00,315 [INFO] User storageuser registered successfully
+2025-09-18 12:28:00,315 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,317 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:28:00,319 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:28:00,350 [INFO] User storageuser registered successfully
+2025-09-18 12:28:00,350 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:28:00,352 [ERROR] presign failed for storageuser/report.csv: minio down
+2025-09-18 12:28:00,352 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 400 Bad Request"
+2025-09-18 12:30:20,118 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,150 [INFO] User user123 registered successfully
+2025-09-18 12:30:20,151 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,152 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,184 [INFO] User user123 registered successfully
+2025-09-18 12:30:20,185 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,186 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,186 [WARNING] Registration failed: Username user123 already exists
+2025-09-18 12:30:20,186 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:30:20,188 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,220 [INFO] User user123 registered successfully
+2025-09-18 12:30:20,220 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,221 [INFO] Login attempt for username: user123
+2025-09-18 12:30:20,256 [INFO] User user123 logged in successfully
+2025-09-18 12:30:20,256 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=strongPASS1 "HTTP/1.1 200 OK"
+2025-09-18 12:30:20,258 [INFO] Login attempt for username: nobody
+2025-09-18 12:30:20,258 [WARNING] users.txt not found, using in-memory user data only
+2025-09-18 12:30:20,258 [WARNING] Failed login attempt for username: nobody
+2025-09-18 12:30:20,259 [INFO] HTTP Request: POST http://testserver/auth/password?u=nobody&p=nope1234 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:30:20,261 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,292 [INFO] User user123 registered successfully
+2025-09-18 12:30:20,293 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,294 [INFO] Login attempt for username: user123
+2025-09-18 12:30:20,327 [WARNING] Failed login attempt for username: user123
+2025-09-18 12:30:20,328 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=wrongpass1 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:30:20,330 [INFO] Registration attempt for username: user123
+2025-09-18 12:30:20,362 [INFO] User user123 registered successfully
+2025-09-18 12:30:20,362 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,364 [INFO] Token refresh attempt
+2025-09-18 12:30:20,364 [INFO] Successfully refreshed token for user: user123
+2025-09-18 12:30:20,364 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=SgAnR2Ss8WqRmskHsg9VXAbbZ-fjycz0qwkbk_c0Oxc "HTTP/1.1 200 OK"
+2025-09-18 12:30:20,366 [INFO] Token refresh attempt
+2025-09-18 12:30:20,366 [WARNING] Invalid or expired refresh token
+2025-09-18 12:30:20,367 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=does-not-exist "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:30:20,368 [INFO] Token refresh attempt
+2025-09-18 12:30:20,368 [WARNING] Invalid or expired refresh token
+2025-09-18 12:30:20,369 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=expired-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:30:20,370 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:30:20,404 [INFO] User storageuser registered successfully
+2025-09-18 12:30:20,405 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,407 [INFO] presigned PUT for storageuser/report.csv
+2025-09-18 12:30:20,407 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:30:20,409 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:30:20,411 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:30:20,443 [INFO] User storageuser registered successfully
+2025-09-18 12:30:20,444 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,446 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:30:20,447 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:30:20,479 [INFO] User storageuser registered successfully
+2025-09-18 12:30:20,479 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:30:20,481 [ERROR] presign failed for storageuser/report.csv: minio down
+2025-09-18 12:30:20,481 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 400 Bad Request"
+2025-09-18 12:32:36,245 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:32:36,291 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:32:36,533 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:32:36,580 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:32:36,766 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:32:36,959 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_0e11d702&p=Pw0e11d702%21A "HTTP/1.1 200 OK"
+2025-09-18 12:32:37,151 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_0e11d702&p=Pw0e11d702%21A%21 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:32:37,343 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:32:37,399 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=7Uhi9htOTcRtLb00bSae2M1-hAA9CI9SIaieSf6bktI "HTTP/1.1 200 OK"
+2025-09-18 12:32:37,445 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=bad-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:32:37,631 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:32:37,818 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_a7b41bff&p=Pwa7b41bff%21A "HTTP/1.1 200 OK"
+2025-09-18 12:32:37,862 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:32:37,908 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:32:37,958 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:33:02,024 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,061 [INFO] User user123 registered successfully
+2025-09-18 12:33:02,062 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,064 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,102 [INFO] User user123 registered successfully
+2025-09-18 12:33:02,103 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,103 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,104 [WARNING] Registration failed: Username user123 already exists
+2025-09-18 12:33:02,104 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:33:02,105 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,138 [INFO] User user123 registered successfully
+2025-09-18 12:33:02,139 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,140 [INFO] Login attempt for username: user123
+2025-09-18 12:33:02,172 [INFO] User user123 logged in successfully
+2025-09-18 12:33:02,173 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=strongPASS1 "HTTP/1.1 200 OK"
+2025-09-18 12:33:02,174 [INFO] Login attempt for username: nobody
+2025-09-18 12:33:02,175 [WARNING] users.txt not found, using in-memory user data only
+2025-09-18 12:33:02,175 [WARNING] Failed login attempt for username: nobody
+2025-09-18 12:33:02,175 [INFO] HTTP Request: POST http://testserver/auth/password?u=nobody&p=nope1234 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:02,177 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,210 [INFO] User user123 registered successfully
+2025-09-18 12:33:02,210 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,211 [INFO] Login attempt for username: user123
+2025-09-18 12:33:02,244 [WARNING] Failed login attempt for username: user123
+2025-09-18 12:33:02,244 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=wrongpass1 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:02,246 [INFO] Registration attempt for username: user123
+2025-09-18 12:33:02,278 [INFO] User user123 registered successfully
+2025-09-18 12:33:02,279 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,280 [INFO] Token refresh attempt
+2025-09-18 12:33:02,280 [INFO] Successfully refreshed token for user: user123
+2025-09-18 12:33:02,280 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=-lVSABTdAnEjxjzfwZT7e3M10CF9nJHpteMnk7MM8JE "HTTP/1.1 200 OK"
+2025-09-18 12:33:02,282 [INFO] Token refresh attempt
+2025-09-18 12:33:02,282 [WARNING] Invalid or expired refresh token
+2025-09-18 12:33:02,283 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=does-not-exist "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:02,284 [INFO] Token refresh attempt
+2025-09-18 12:33:02,284 [WARNING] Invalid or expired refresh token
+2025-09-18 12:33:02,285 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=expired-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:02,396 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:33:02,444 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:33:02,632 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:02,675 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:33:02,862 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:03,056 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_3dc7356c&p=Pw3dc7356c%21A "HTTP/1.1 200 OK"
+2025-09-18 12:33:03,257 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_3dc7356c&p=Pw3dc7356c%21A%21 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:03,455 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:03,513 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=zjAwj_H1eti5_FkMVGudElxw6rSbIKtcaXNCbPVREg4 "HTTP/1.1 200 OK"
+2025-09-18 12:33:03,564 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=bad-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:03,740 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:03,924 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_058878d2&p=Pw058878d2%21A "HTTP/1.1 200 OK"
+2025-09-18 12:33:03,986 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:33:04,030 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:04,077 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:33:04,080 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:33:04,113 [INFO] User storageuser registered successfully
+2025-09-18 12:33:04,114 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:04,115 [INFO] presigned PUT for storageuser/report.csv
+2025-09-18 12:33:04,116 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:33:04,118 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:33:04,120 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:33:04,152 [INFO] User storageuser registered successfully
+2025-09-18 12:33:04,153 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:04,155 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:33:04,156 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:33:04,189 [INFO] User storageuser registered successfully
+2025-09-18 12:33:04,190 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:33:04,191 [ERROR] presign failed for storageuser/report.csv: minio down
+2025-09-18 12:33:04,192 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 400 Bad Request"
+2025-09-18 12:34:01,677 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,711 [INFO] User user123 registered successfully
+2025-09-18 12:34:01,712 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:01,713 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,746 [INFO] User user123 registered successfully
+2025-09-18 12:34:01,746 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:01,747 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,747 [WARNING] Registration failed: Username user123 already exists
+2025-09-18 12:34:01,747 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:34:01,749 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,781 [INFO] User user123 registered successfully
+2025-09-18 12:34:01,781 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:01,783 [INFO] Login attempt for username: user123
+2025-09-18 12:34:01,815 [INFO] User user123 logged in successfully
+2025-09-18 12:34:01,816 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=strongPASS1 "HTTP/1.1 200 OK"
+2025-09-18 12:34:01,818 [INFO] Login attempt for username: nobody
+2025-09-18 12:34:01,818 [WARNING] users.txt not found, using in-memory user data only
+2025-09-18 12:34:01,818 [WARNING] Failed login attempt for username: nobody
+2025-09-18 12:34:01,819 [INFO] HTTP Request: POST http://testserver/auth/password?u=nobody&p=nope1234 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:01,820 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,853 [INFO] User user123 registered successfully
+2025-09-18 12:34:01,853 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:01,854 [INFO] Login attempt for username: user123
+2025-09-18 12:34:01,887 [WARNING] Failed login attempt for username: user123
+2025-09-18 12:34:01,887 [INFO] HTTP Request: POST http://testserver/auth/password?u=user123&p=wrongpass1 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:01,889 [INFO] Registration attempt for username: user123
+2025-09-18 12:34:01,920 [INFO] User user123 registered successfully
+2025-09-18 12:34:01,921 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:01,922 [INFO] Token refresh attempt
+2025-09-18 12:34:01,922 [INFO] Successfully refreshed token for user: user123
+2025-09-18 12:34:01,922 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=KjVogzNqVHn1ZROQ19YZgpgFbW0ijy_vOVz1gvrJm14 "HTTP/1.1 200 OK"
+2025-09-18 12:34:01,924 [INFO] Token refresh attempt
+2025-09-18 12:34:01,924 [WARNING] Invalid or expired refresh token
+2025-09-18 12:34:01,925 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=does-not-exist "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:01,926 [INFO] Token refresh attempt
+2025-09-18 12:34:01,926 [WARNING] Invalid or expired refresh token
+2025-09-18 12:34:01,927 [INFO] HTTP Request: POST http://testserver/auth/refresh?rid=expired-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:02,047 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:34:02,098 [INFO] HTTP Request: GET http://141.5.110.112:7800/ "HTTP/1.1 200 OK"
+2025-09-18 12:34:02,247 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:02,291 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 409 Conflict"
+2025-09-18 12:34:02,563 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:02,726 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_487310fd&p=Pw487310fd%21A "HTTP/1.1 200 OK"
+2025-09-18 12:34:02,956 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_487310fd&p=Pw487310fd%21A%21 "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:03,109 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:03,159 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=NRRdc0CpDShMNg2LiywuBKIpcixi6Zko_2VXeIqzEXs "HTTP/1.1 200 OK"
+2025-09-18 12:34:03,205 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/refresh?rid=bad-token "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:03,377 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:03,543 [INFO] HTTP Request: POST http://141.5.110.112:7800/auth/password?u=pytest_a27f7493&p=Pwa27f7493%21A "HTTP/1.1 200 OK"
+2025-09-18 12:34:03,591 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:34:03,635 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:03,680 [INFO] HTTP Request: POST http://141.5.110.112:7800/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:34:03,682 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:34:03,715 [INFO] User storageuser registered successfully
+2025-09-18 12:34:03,716 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:03,718 [INFO] presigned PUT for storageuser/report.csv
+2025-09-18 12:34:03,718 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 200 OK"
+2025-09-18 12:34:03,720 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 401 Unauthorized"
+2025-09-18 12:34:03,722 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:34:03,753 [INFO] User storageuser registered successfully
+2025-09-18 12:34:03,754 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:03,756 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=..%2Fsecrets.txt "HTTP/1.1 400 Bad Request"
+2025-09-18 12:34:03,757 [INFO] Registration attempt for username: storageuser
+2025-09-18 12:34:03,790 [INFO] User storageuser registered successfully
+2025-09-18 12:34:03,790 [INFO] HTTP Request: POST http://testserver/auth/register "HTTP/1.1 201 Created"
+2025-09-18 12:34:03,792 [ERROR] presign failed for storageuser/report.csv: minio down
+2025-09-18 12:34:03,792 [INFO] HTTP Request: POST http://testserver/storage/presign/upload?object_name=report.csv "HTTP/1.1 400 Bad Request"
