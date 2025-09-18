@@ -1,9 +1,12 @@
+import re
 import time, jwt, secrets
-from fastapi import FastAPI, HTTPException, status, Header
+from fastapi import FastAPI, HTTPException, status, Header, Query, Depends
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
-from storage.minio_client import make_bucket_token, presigned_put_url
+from storage.minio_client import make_bucket_token, presigned_put_url, MINIO, BUCKET
 import logging
+
+from util.auth_utils import sanitize, current_user
 
 # Configure logging at module level
 logging.basicConfig(
@@ -60,20 +63,11 @@ async def register(payload: UserCreate):
         f.write(f"{payload.username}:{USERS[payload.username]}\n")
         logger.debug(f"User {payload.username} saved to users.txt")
 
-    try:
-        # Create per-user bucket and mint a bucket token for uploads
-        bucket_token, bucket_name = make_bucket_token(payload.username)
-        logger.info(f"Successfully created bucket {bucket_name} for user {payload.username}")
-    except Exception as e:
-        logger.error(f"Failed to create bucket for {payload.username}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to create storage bucket")
 
     logger.info(f"User {payload.username} registered successfully")
     return {
         "access": make_access(payload.username),
-        "refresh": rid,
-        "bucket": bucket_name,
-        "bucket_token": bucket_token,
+        "refresh": rid
     }
 
 
@@ -123,17 +117,20 @@ def refresh(rid: str):
     return {"access": make_access(t["sub"]), "refresh": new}
 
 
-# Exchange a bucket token for a presigned PUT URL
-@app.post("/storage/upload_url")
-def create_upload_url(object_name: str, x_bucket_token: str = Header(..., alias="X-Bucket-Token")):
-    logger.info(f"Upload URL requested for object: {object_name}")
+
+
+@app.post("/storage/presign/upload")
+def create_upload_url(object_name: str = Query(...), user=Depends(current_user)):
+    safe = sanitize(object_name)
+    key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
-        url = presigned_put_url(x_bucket_token, object_name, expires_seconds=600)
-        logger.info(f"Presigned URL generated successfully for {object_name}")
-        return {"url": url, "expires_in": 600}
+        url = MINIO.presigned_put_object(BUCKET, key, expires=600)
+        logger.info(f"presigned PUT for {key}")
+        return {"key": key, "url": url, "expires_in": 600}
     except Exception as e:
-        logger.error(f"Failed to generate presigned URL: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"presign failed for {key}: {e}")
+        raise HTTPException(400, "failed to create upload URL")
+
 
 
 # This block only runs when the script is executed directly
