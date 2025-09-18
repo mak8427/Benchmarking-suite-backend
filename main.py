@@ -126,7 +126,7 @@ def create_upload_url(object_name: str = Query(...), user=Depends(current_user))
     safe = sanitize(object_name)
     key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
-        url = PUBLIC_MINIO.presigned_put_object(BUCKET, key, expires=600)
+        url = PUBLIC_MINIO.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
         logger.info(f"presigned PUT for {key}")
         return {"key": key, "url": url, "expires_in": 600}
     except Exception as e:
