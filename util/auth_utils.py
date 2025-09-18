@@ -3,7 +3,6 @@ from typing import Annotated
 
 import jwt
 from fastapi import HTTPException, Header
-from jupyter_server.auth import User
 SECRET = b"..."
 
 def current_user(
