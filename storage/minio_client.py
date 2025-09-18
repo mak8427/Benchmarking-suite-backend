@@ -8,14 +8,14 @@ from minio.error import S3Error
 import jwt
 from jwt import InvalidTokenError
 ADMIN_MINIO = Minio(
-    os.getenv("MINIO_ADMIN_ENDPOINT", "127.0.0.1:9000"),
+    os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000"),
     access_key=os.getenv("MINIO_ACCESS_KEY"),
     secret_key=os.getenv("MINIO_SECRET_KEY"),
     secure=False,
 )
 
 PUBLIC_MINIO = Minio(
-    os.getenv("MINIO_PUBLIC_ENDPOINT", "141.5.110.112:9000"),  # or minio.example.org
+    os.getenv("MINIO_PUBLIC_ENDPOINT", "141.5.110.112:9001"),  # or minio.example.org
     access_key=os.getenv("MINIO_ACCESS_KEY"),
     secret_key=os.getenv("MINIO_SECRET_KEY"),
     secure=False,  # set True if you expose HTTPS
