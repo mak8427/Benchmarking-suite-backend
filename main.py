@@ -1,5 +1,7 @@
 import re
 import time, jwt, secrets
+from datetime import timedelta
+
 from fastapi import FastAPI, HTTPException, status, Header, Query, Depends
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
@@ -124,7 +126,7 @@ def create_upload_url(object_name: str = Query(...), user=Depends(current_user))
     safe = sanitize(object_name)
     key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
-        url = MINIO.presigned_put_object(BUCKET, key, expires=600)
+        url = MINIO.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
         logger.info(f"presigned PUT for {key}")
         return {"key": key, "url": url, "expires_in": 600}
     except Exception as e:
