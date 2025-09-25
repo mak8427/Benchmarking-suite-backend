@@ -24,7 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = FastAPI(
+    title="File Storage API",
+    description="A secure file storage API with user authentication and MinIO integration",
+    version="1.0.0"
+)
 SECRET = b"..."
 TOKENS = {}
 USERS = {"alice": argon2.hash("pass")}
@@ -32,20 +36,39 @@ USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
 
 
 def get_public_minio_client():
+    """Get the public MinIO client for standard file operations"""
     return PUBLIC_MINIO
 
 
 def get_admin_minio_client():
+    """Get the admin MinIO client for administrative operations"""
     return ADMIN_MINIO
 
 
 class UserCreate(BaseModel):
-    username: str = Field(..., min_length=5, max_length=20)
-    password: str = Field(..., min_length=8, max_length=128)
+    """Model for user registration data"""
+    username: str = Field(
+        ...,
+        min_length=5,
+        max_length=20,
+        description="Unique username for the account. Must be between 5-20 characters long.",
+        example="johndoe123"
+    )
+    password: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+        description="Password for the account. Must be at least 8 characters long for security.",
+        example="SecurePass123!"
+    )
 
 
-@app.get("/")
+@app.get("/", summary="Health Check", description="Simple endpoint to verify the API is running")
 async def root():
+    """
+    Root endpoint that returns a welcome message.
+    Used for health checks and API availability verification.
+    """
     logger.info("Root endpoint accessed")
     return {"message": "Hello World"}
 
@@ -53,15 +76,39 @@ async def root():
 def make_access(sub):
     """
     Create a short-lived access token for the given subject.
-    :param sub:
-    :return:
+
+    Args:
+        sub (str): The subject (username) for whom to create the token
+
+    Returns:
+        str: JWT access token valid for 10 minutes
     """
     logger.debug(f"Creating access token for user: {sub}")
     return jwt.encode({"sub": sub, "scope": "upload", "exp": time.time() + 600}, SECRET, "HS256")
 
 
-@app.post("/auth/register", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/auth/register",
+    status_code=status.HTTP_201_CREATED,
+    summary="Register New User",
+    description="Create a new user account with username and password. Returns access and refresh tokens upon successful registration."
+)
 async def register(payload: UserCreate):
+    """
+    Register a new user account.
+
+    Creates a new user with the provided credentials and returns authentication tokens.
+    The user data is stored both in memory and persisted to a text file.
+
+    Args:
+        payload (UserCreate): User registration data containing username and password
+
+    Returns:
+        dict: Contains access token (10min validity) and refresh token (30 day validity)
+
+    Raises:
+        HTTPException: 409 if username already exists
+    """
     logger.info(f"Registration attempt for username: {payload.username}")
 
     if payload.username in USERS:
@@ -78,7 +125,6 @@ async def register(payload: UserCreate):
         f.write(f"{payload.username}:{USERS[payload.username]}\n")
         logger.debug(f"User {payload.username} saved to users.txt")
 
-
     logger.info(f"User {payload.username} registered successfully")
     return {
         "access": make_access(payload.username),
@@ -86,14 +132,31 @@ async def register(payload: UserCreate):
     }
 
 
-@app.post("/auth/password")
-def login(u: str, p: str):
+@app.post(
+    "/auth/password",
+    summary="User Login",
+    description="Authenticate user with username and password. Returns access and refresh tokens for authenticated sessions."
+)
+def login(
+        u: str = Query(..., description="Username for authentication", example="johndoe123"),
+        p: str = Query(..., description="Password for authentication", example="SecurePass123!")
+):
     """
     Authenticate user and return access and refresh tokens.
-    30 day refresh token, 10 minute access token.
-    :param u:
-    :param p:
-    :return:
+
+    Validates user credentials against stored user data and returns JWT tokens
+    for authenticated API access. Access tokens are valid for 10 minutes,
+    refresh tokens are valid for 30 days.
+
+    Args:
+        u (str): Username for authentication
+        p (str): Password for authentication
+
+    Returns:
+        dict: Contains access token and refresh token
+
+    Raises:
+        HTTPException: 401 if credentials are invalid
     """
     logger.info(f"Login attempt for username: {u}")
 
@@ -117,8 +180,30 @@ def login(u: str, p: str):
     return {"access": make_access(u), "refresh": rid}
 
 
-@app.post("/auth/refresh")
-def refresh(rid: str):
+@app.post(
+    "/auth/refresh",
+    summary="Refresh Access Token",
+    description="Exchange a valid refresh token for a new access token and refresh token pair."
+)
+def refresh(
+        rid: str = Query(..., description="Refresh token ID obtained from login or previous refresh",
+                         example="abc123def456...")
+):
+    """
+    Refresh authentication tokens using a valid refresh token.
+
+    Exchanges an existing refresh token for a new access token and refresh token.
+    The old refresh token is invalidated and replaced with a new one.
+
+    Args:
+        rid (str): Refresh token ID to exchange for new tokens
+
+    Returns:
+        dict: New access token and refresh token
+
+    Raises:
+        HTTPException: 401 if refresh token is invalid or expired
+    """
     logger.info("Token refresh attempt")
     t = TOKENS.get(rid)
     if not t or t["exp"] < time.time():
@@ -132,14 +217,38 @@ def refresh(rid: str):
     return {"access": make_access(t["sub"]), "refresh": new}
 
 
-
-
-@app.post("/storage/presign/upload")
+@app.post(
+    "/storage/presign/upload",
+    summary="Generate Upload URL",
+    description="Create a presigned URL for uploading files to MinIO storage. Requires authentication."
+)
 def create_upload_url(
-    object_name: str = Query(...),
-    user=Depends(current_user),
-    minio_client=Depends(get_public_minio_client),
+        object_name: str = Query(
+            ...,
+            description="Name of the file to upload. Will be sanitized and prefixed with username.",
+            example="my-document.pdf"
+        ),
+        user=Depends(current_user),
+        minio_client=Depends(get_public_minio_client),
 ):
+    """
+    Generate a presigned URL for file upload to MinIO storage.
+
+    Creates a temporary upload URL that allows direct file upload to MinIO storage.
+    The file will be stored under the authenticated user's namespace.
+    URL expires after 30 minutes for security.
+
+    Args:
+        object_name (str): Name of the file to upload
+        user: Authenticated user information (injected by dependency)
+        minio_client: MinIO client instance (injected by dependency)
+
+    Returns:
+        dict: Contains the storage key, presigned URL, and expiration time
+
+    Raises:
+        HTTPException: 400 if URL generation fails
+    """
     safe = sanitize(object_name)
     key = f"{user['username']}/{safe}"  # prefix by caller identity
     try:
@@ -151,13 +260,37 @@ def create_upload_url(
         raise HTTPException(400, "failed to create upload URL")
 
 
-
-@app.get("/storage/presign/download")
+@app.get(
+    "/storage/presign/download",
+    summary="Generate Download URL",
+    description="Create a presigned URL for downloading files from MinIO storage. Requires authentication."
+)
 def create_download_url(
-    object_name: str = Query(...),
-    user=Depends(current_user),
-    minio_client=Depends(get_public_minio_client),
+        object_name: str = Query(
+            ...,
+            description="Name of the file to download from your storage namespace.",
+            example="my-document.pdf"
+        ),
+        user=Depends(current_user),
+        minio_client=Depends(get_public_minio_client),
 ):
+    """
+    Generate a presigned URL for file download from MinIO storage.
+
+    Creates a temporary download URL for files stored under the authenticated user's namespace.
+    URL expires after 30 minutes for security.
+
+    Args:
+        object_name (str): Name of the file to download
+        user: Authenticated user information (injected by dependency)
+        minio_client: MinIO client instance (injected by dependency)
+
+    Returns:
+        dict: Contains the storage key, presigned URL, and expiration time
+
+    Raises:
+        HTTPException: 400 if URL generation fails
+    """
     safe = sanitize(object_name)
     key = f"{user['username']}/{safe}"
     try:
@@ -169,11 +302,31 @@ def create_download_url(
         raise HTTPException(400, "failed to create download URL")
 
 
-@app.get("/storage/list")
+@app.get(
+    "/storage/list",
+    summary="List User Files",
+    description="Retrieve a list of all files stored under the authenticated user's namespace."
+)
 def list_objects(
-    user=Depends(current_user),
-    minio_client=Depends(get_admin_minio_client),
+        user=Depends(current_user),
+        minio_client=Depends(get_admin_minio_client),
 ):
+    """
+    List all files stored under the authenticated user's namespace.
+
+    Retrieves metadata for all files belonging to the authenticated user,
+    including file size and last modification date.
+
+    Args:
+        user: Authenticated user information (injected by dependency)
+        minio_client: Admin MinIO client instance (injected by dependency)
+
+    Returns:
+        dict: List of objects with metadata (key, size, last_modified)
+
+    Raises:
+        HTTPException: 400 if listing fails
+    """
     prefix = f"{user['username']}/"
     objects = []
     try:
@@ -194,7 +347,6 @@ def list_objects(
     except Exception as e:
         logger.error(f"list objects failed for {user['username']}: {e}")
         raise HTTPException(400, "failed to list objects")
-
 
 
 # This block only runs when the script is executed directly
