@@ -38,7 +38,7 @@ pytest:
   <<: *setup
   script:
     - pip install pytest
-    - pytest tests --ignore=tests/remote --disable-warnings --maxfail=1
+    - pytest tests
 
 remote-tests:
   stage: remote
@@ -47,7 +47,7 @@ remote-tests:
   <<: *setup
   script:
     - pip install pytest
-    - pytest tests/remote --disable-warnings --maxfail=1
+    - pytest tests/
   rules:
     - if: '$REMOTE_BASE_URL'
     - when: manual
