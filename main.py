@@ -1,18 +1,23 @@
+"""FastAPI application exposing authentication and MinIO-backed storage APIs."""
+
+from __future__ import annotations
+
+import logging
 import os
-import re
-import time, jwt, secrets
+import secrets
+import time
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException, status, Header, Query, Depends
+import jwt
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
-from storage.minio_client import BUCKET, PUBLIC_MINIO, ADMIN_MINIO
-import logging
 
-from util.auth_utils import sanitize, current_user
+from storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO
+from util.auth_utils import current_user, sanitize
 
-# Configure logging at module level
 LOG_FILE = Path(os.getenv("LOG_FILE_PATH", "process.log"))
 logging.basicConfig(
     level=logging.INFO,
@@ -22,336 +27,391 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
+
+Tokens = Dict[str, Dict[str, float]]
+Users = Dict[str, str]
+
+# NOTE: replace placeholder secret during deployment.
+SECRET = os.getenv("JWT_SECRET", "...").encode("utf-8")
+TOKENS: Tokens = {}
+USERS: Users = {"alice": argon2.hash("pass")}
+USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
+
+ACCESS_TOKEN_TTL_SECONDS = 600
+REFRESH_TOKEN_TTL_SECONDS = 30 * 86400
+PRESIGN_EXPIRATION_MINUTES = 30
 
 app = FastAPI(
     title="File Storage API",
-    description="A secure file storage API with user authentication and MinIO integration",
-    version="1.0.0"
+    description=(
+        "A secure file storage API with user authentication and MinIO integration."
+    ),
+    version="1.0.0",
 )
-SECRET = b"..."
-TOKENS = {}
-USERS = {"alice": argon2.hash("pass")}
-USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
-
-
-def get_public_minio_client():
-    """Get the public MinIO client for standard file operations"""
-    return PUBLIC_MINIO
-
-
-def get_admin_minio_client():
-    """Get the admin MinIO client for administrative operations"""
-    return ADMIN_MINIO
 
 
 class UserCreate(BaseModel):
-    """Model for user registration data"""
+    """Request model for user registration payloads."""
+
     username: str = Field(
         ...,
         min_length=5,
         max_length=20,
-        description="Unique username for the account. Must be between 5-20 characters long.",
-        example="johndoe123"
+        description="Unique username for the account.",
+        examples=["johndoe123"],
     )
     password: str = Field(
         ...,
         min_length=8,
         max_length=128,
-        description="Password for the account. Must be at least 8 characters long for security.",
-        example="SecurePass123!"
+        description="Password associated with the account.",
+        examples=["SecurePass123!"],
     )
 
 
-@app.get("/", summary="Health Check", description="Simple endpoint to verify the API is running")
-async def root():
-    """
-    Root endpoint that returns a welcome message.
-    Used for health checks and API availability verification.
-    """
-    logger.info("Root endpoint accessed")
-    return {"message": "Hello World"}
+def get_public_minio_client():
+    """Return the public MinIO client instance used for file operations."""
+    return PUBLIC_MINIO
 
 
-def make_access(sub):
-    """
-    Create a short-lived access token for the given subject.
+def get_admin_minio_client():
+    """Return the MinIO client with administrative privileges."""
+    return ADMIN_MINIO
+
+
+def _persist_user(username: str, password_hash: str) -> None:
+    """Append a user credential entry to the users file.
 
     Args:
-        sub (str): The subject (username) for whom to create the token
+        username: Username to persist.
+        password_hash: Hashed password to persist.
+    """
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with USERS_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(f"{username}:{password_hash}\n")
+
+
+def _load_users_from_disk() -> None:
+    """Populate the in-memory user store with credentials from disk."""
+    if not USERS_FILE.exists():
+        return
+    with USERS_FILE.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            username, hash_value = line.strip().split(":", maxsplit=1)
+            USERS[username] = hash_value
+
+
+def make_access(subject: str) -> str:
+    """Create a short-lived access token for the provided subject.
+
+    Args:
+        subject: Username embedded in the token.
 
     Returns:
-        str: JWT access token valid for 10 minutes
+        Encoded JWT access token.
     """
-    logger.debug(f"Creating access token for user: {sub}")
-    return jwt.encode({"sub": sub, "scope": "upload", "exp": time.time() + 600}, SECRET, "HS256")
+    LOGGER.debug("Creating access token for user: %s", subject)
+    payload = {
+        "sub": subject,
+        "scope": "upload",
+        "exp": time.time() + ACCESS_TOKEN_TTL_SECONDS,
+    }
+    return jwt.encode(payload, SECRET, algorithm="HS256")
+
+
+@app.get(
+    "/",
+    summary="Health Check",
+    description="Simple endpoint to verify the API is running.",
+)
+async def root() -> Dict[str, str]:
+    """Return a basic response for service health checks."""
+    LOGGER.info("Root endpoint accessed")
+    return {"message": "Hello World"}
 
 
 @app.post(
     "/auth/register",
     status_code=status.HTTP_201_CREATED,
     summary="Register New User",
-    description="Create a new user account with username and password. Returns access and refresh tokens upon successful registration."
+    description=(
+        "Create a new user account. Returns access and refresh tokens upon "
+        "successful registration."
+    ),
 )
-async def register(payload: UserCreate):
-    """
-    Register a new user account.
-
-    Creates a new user with the provided credentials and returns authentication tokens.
-    The user data is stored both in memory and persisted to a text file.
+async def register(payload: UserCreate) -> Dict[str, str]:
+    """Register a new user and return access credentials.
 
     Args:
-        payload (UserCreate): User registration data containing username and password
+        payload: User registration model containing credentials.
 
     Returns:
-        dict: Contains access token (10min validity) and refresh token (30 day validity)
+        Dictionary holding access and refresh tokens.
 
     Raises:
-        HTTPException: 409 if username already exists
+        HTTPException: Raised if the username is already registered.
     """
-    logger.info(f"Registration attempt for username: {payload.username}")
+    LOGGER.info("Registration attempt for username: %s", payload.username)
+    _load_users_from_disk()
 
     if payload.username in USERS:
-        logger.warning(f"Registration failed: Username {payload.username} already exists")
-        raise HTTPException(status_code=409, detail="Username already registered")
+        LOGGER.warning("Registration failed: username %s already exists", payload.username)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username already registered.",
+        )
 
-    USERS[payload.username] = argon2.hash(payload.password)
-    rid = secrets.token_urlsafe(32)
-    TOKENS[rid] = {"sub": payload.username, "exp": time.time() + 30 * 86400}
+    password_hash = argon2.hash(payload.password)
+    USERS[payload.username] = password_hash
+    _persist_user(payload.username, password_hash)
 
-    # Save user to plain text, for now
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with USERS_FILE.open("a", encoding="utf-8") as f:
-        f.write(f"{payload.username}:{USERS[payload.username]}\n")
-        logger.debug(f"User {payload.username} saved to users.txt")
-
-    logger.info(f"User {payload.username} registered successfully")
-    return {
-        "access": make_access(payload.username),
-        "refresh": rid
+    refresh_id = secrets.token_urlsafe(32)
+    TOKENS[refresh_id] = {
+        "sub": payload.username,
+        "exp": time.time() + REFRESH_TOKEN_TTL_SECONDS,
     }
+
+    LOGGER.info("User %s registered successfully", payload.username)
+    return {"access": make_access(payload.username), "refresh": refresh_id}
 
 
 @app.post(
     "/auth/password",
     summary="User Login",
-    description="Authenticate user with username and password. Returns access and refresh tokens for authenticated sessions."
+    description="Authenticate user with username and password.",
 )
-def login(
-        u: str = Query(..., description="Username for authentication", example="johndoe123"),
-        p: str = Query(..., description="Password for authentication", example="SecurePass123!")
-):
-    """
-    Authenticate user and return access and refresh tokens.
-
-    Validates user credentials against stored user data and returns JWT tokens
-    for authenticated API access. Access tokens are valid for 10 minutes,
-    refresh tokens are valid for 30 days.
+async def login(
+    username: str = Query(
+        ...,
+        description="Username for authentication.",
+        examples=["johndoe123"],
+        alias="u",
+    ),
+    password: str = Query(
+        ...,
+        description="Password for authentication.",
+        examples=["SecurePass123!"],
+        alias="p",
+    ),
+) -> Dict[str, str]:
+    """Authenticate a user and issue access and refresh tokens.
 
     Args:
-        u (str): Username for authentication
-        p (str): Password for authentication
+        username: Username provided for authentication.
+        password: Password provided for authentication.
 
     Returns:
-        dict: Contains access token and refresh token
+        Dictionary containing access and refresh tokens.
 
     Raises:
-        HTTPException: 401 if credentials are invalid
+        HTTPException: Raised if the credentials are invalid.
     """
-    logger.info(f"Login attempt for username: {u}")
+    LOGGER.info("Login attempt for username: %s", username)
+    _load_users_from_disk()
 
-    try:
-        with USERS_FILE.open("r", encoding="utf-8") as f:
-            for line in f:
-                user, hashv = line.split(":")
-                USERS[user] = hashv.strip()
-        logger.debug("User data loaded from users.txt")
-    except FileNotFoundError:
-        logger.warning("users.txt not found, using in-memory user data only")
-        pass
+    if username not in USERS or not argon2.verify(password, USERS[username]):
+        LOGGER.warning("Failed login attempt for username: %s", username)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
 
-    if u not in USERS or not argon2.verify(p, USERS[u]):
-        logger.warning(f"Failed login attempt for username: {u}")
-        raise HTTPException(401)
-
-    rid = secrets.token_urlsafe(32)
-    TOKENS[rid] = {"sub": u, "exp": time.time() + 30 * 86400}
-    logger.info(f"User {u} logged in successfully")
-    return {"access": make_access(u), "refresh": rid}
+    refresh_id = secrets.token_urlsafe(32)
+    TOKENS[refresh_id] = {
+        "sub": username,
+        "exp": time.time() + REFRESH_TOKEN_TTL_SECONDS,
+    }
+    LOGGER.info("User %s logged in successfully", username)
+    return {"access": make_access(username), "refresh": refresh_id}
 
 
 @app.post(
     "/auth/refresh",
     summary="Refresh Access Token",
-    description="Exchange a valid refresh token for a new access token and refresh token pair."
+    description="Exchange a valid refresh token for a new token pair.",
 )
-def refresh(
-        rid: str = Query(..., description="Refresh token ID obtained from login or previous refresh",
-                         example="abc123def456...")
-):
-    """
-    Refresh authentication tokens using a valid refresh token.
-
-    Exchanges an existing refresh token for a new access token and refresh token.
-    The old refresh token is invalidated and replaced with a new one.
+async def refresh(
+    refresh_id: str = Query(
+        ...,
+        description="Refresh token identifier returned during login.",
+        examples=["abc123def456"],
+        alias="rid",
+    ),
+) -> Dict[str, str]:
+    """Exchange a refresh token for a new pair of authentication tokens.
 
     Args:
-        rid (str): Refresh token ID to exchange for new tokens
+        refresh_id: Identifier of the previously issued refresh token.
 
     Returns:
-        dict: New access token and refresh token
+        Dictionary containing a fresh access token and refresh token.
 
     Raises:
-        HTTPException: 401 if refresh token is invalid or expired
+        HTTPException: Raised if the refresh token is invalid or expired.
     """
-    logger.info("Token refresh attempt")
-    t = TOKENS.get(rid)
-    if not t or t["exp"] < time.time():
-        logger.warning(f"Invalid or expired refresh token")
-        raise HTTPException(401)
+    LOGGER.info("Refresh attempt for token id: %s", refresh_id)
+    token_data = TOKENS.get(refresh_id)
+    if not token_data:
+        LOGGER.warning("Refresh failed: unknown token id %s", refresh_id)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token.")
 
-    new = secrets.token_urlsafe(32)
-    TOKENS[new] = t
-    TOKENS.pop(rid, None)
-    logger.info(f"Successfully refreshed token for user: {t['sub']}")
-    return {"access": make_access(t["sub"]), "refresh": new}
+    if token_data["exp"] < time.time():
+        LOGGER.warning("Refresh failed: token id %s expired", refresh_id)
+        TOKENS.pop(refresh_id, None)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired.")
+
+    TOKENS.pop(refresh_id, None)
+    new_refresh_id = secrets.token_urlsafe(32)
+    TOKENS[new_refresh_id] = {
+        "sub": token_data["sub"],
+        "exp": time.time() + REFRESH_TOKEN_TTL_SECONDS,
+    }
+    LOGGER.info("Token refreshed for user: %s", token_data["sub"])
+    return {"access": make_access(token_data["sub"]), "refresh": new_refresh_id}
 
 
 @app.post(
     "/storage/presign/upload",
-    summary="Generate Upload URL",
-    description="Create a presigned URL for uploading files to MinIO storage. Requires authentication."
-)
-def create_upload_url(
-        object_name: str = Query(
-            ...,
-            description="Name of the file to upload. Will be sanitized and prefixed with username.",
-            example="my-document.pdf"
-        ),
-        user=Depends(current_user),
-        minio_client=Depends(get_public_minio_client),
-):
-    """
-    Generate a presigned URL for file upload to MinIO storage.
+    summary="Create Upload URL",
+    description=(
+        "Generate a presigned URL that allows the caller to upload a file "
+        "into their storage namespace."
+    )
 
-    Creates a temporary upload URL that allows direct file upload to MinIO storage.
-    The file will be stored under the authenticated user's namespace.
-    URL expires after 30 minutes for security.
+)
+async def create_upload_url(
+    object_name: str = Query(
+        ...,
+        description="Name of the object to be uploaded.",
+    ),
+    user: Dict[str, str] = Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+) -> Dict[str, str]:
+    """Create a presigned PUT URL for uploading a file.
 
     Args:
-        object_name (str): Name of the file to upload
-        user: Authenticated user information (injected by dependency)
-        minio_client: MinIO client instance (injected by dependency)
+        object_name: Desired object name provided by the caller.
+        user: Authenticated user injected via dependency.
+        minio_client: MinIO client used to generate the URL.
 
     Returns:
-        dict: Contains the storage key, presigned URL, and expiration time
+        Dictionary containing the storage key, presigned URL, and expiration.
 
     Raises:
-        HTTPException: 400 if URL generation fails
+        HTTPException: Raised if the presign operation fails.
     """
-    safe = sanitize(object_name)
-    key = f"{user['username']}/{safe}"  # prefix by caller identity
+    safe_name = sanitize(object_name)
+    storage_key = f"{user['username']}/{safe_name}"
     try:
-        url = minio_client.presigned_put_object(BUCKET, key, expires=timedelta(minutes=30))
-        logger.info(f"presigned PUT for {key}")
-        return {"key": key, "url": url, "expires_in": 600}
-    except Exception as e:
-        logger.error(f"presign failed for {key}: {e}")
-        raise HTTPException(400, "failed to create upload URL")
+        expires = timedelta(minutes=PRESIGN_EXPIRATION_MINUTES)
+        url = minio_client.presigned_put_object(BUCKET, storage_key, expires=expires)
+        LOGGER.info("Presigned PUT generated for %s", storage_key)
+        return {
+            "key": storage_key,
+            "url": url,
+            "expires_in": PRESIGN_EXPIRATION_MINUTES * 60,
+        }
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Upload presign failed for %s: %s", storage_key, exc)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create upload URL.",
+        ) from exc
 
 
 @app.get(
     "/storage/presign/download",
-    summary="Generate Download URL",
-    description="Create a presigned URL for downloading files from MinIO storage. Requires authentication."
+    summary="Create Download URL",
+    description="Generate a presigned URL to download a file from storage.",
 )
-def create_download_url(
-        object_name: str = Query(
-            ...,
-            description="Name of the file to download from your storage namespace.",
-            example="my-document.pdf"
-        ),
-        user=Depends(current_user),
-        minio_client=Depends(get_public_minio_client),
-):
-    """
-    Generate a presigned URL for file download from MinIO storage.
-
-    Creates a temporary download URL for files stored under the authenticated user's namespace.
-    URL expires after 30 minutes for security.
+async def create_download_url(
+    object_name: str = Query(
+        ...,
+        description="Name of the object to download.",
+    ),
+    user: Dict[str, str] = Depends(current_user),
+    minio_client=Depends(get_public_minio_client),
+) -> Dict[str, str]:
+    """Create a presigned GET URL for downloading a file.
 
     Args:
-        object_name (str): Name of the file to download
-        user: Authenticated user information (injected by dependency)
-        minio_client: MinIO client instance (injected by dependency)
+        object_name: Desired object name provided by the caller.
+        user: Authenticated user injected via dependency.
+        minio_client: MinIO client used to generate the URL.
 
     Returns:
-        dict: Contains the storage key, presigned URL, and expiration time
+        Dictionary containing the storage key, presigned URL, and expiration.
 
     Raises:
-        HTTPException: 400 if URL generation fails
+        HTTPException: Raised if the presign operation fails.
     """
-    safe = sanitize(object_name)
-    key = f"{user['username']}/{safe}"
+    safe_name = sanitize(object_name)
+    storage_key = f"{user['username']}/{safe_name}"
     try:
-        url = minio_client.presigned_get_object(BUCKET, key, expires=timedelta(minutes=30))
-        logger.info(f"presigned GET for {key}")
-        return {"key": key, "url": url, "expires_in": 600}
-    except Exception as e:
-        logger.error(f"download presign failed for {key}: {e}")
-        raise HTTPException(400, "failed to create download URL")
+        expires = timedelta(minutes=PRESIGN_EXPIRATION_MINUTES)
+        url = minio_client.presigned_get_object(BUCKET, storage_key, expires=expires)
+        LOGGER.info("Presigned GET generated for %s", storage_key)
+        return {
+            "key": storage_key,
+            "url": url,
+            "expires_in": PRESIGN_EXPIRATION_MINUTES * 60,
+        }
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Download presign failed for %s: %s", storage_key, exc)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create download URL.",
+        ) from exc
 
 
 @app.get(
     "/storage/list",
     summary="List User Files",
-    description="Retrieve a list of all files stored under the authenticated user's namespace."
+    description="List objects stored under the authenticated user's namespace.",
 )
-def list_objects(
-        user=Depends(current_user),
-        minio_client=Depends(get_admin_minio_client),
-):
-    """
-    List all files stored under the authenticated user's namespace.
-
-    Retrieves metadata for all files belonging to the authenticated user,
-    including file size and last modification date.
+async def list_objects(
+    user: Dict[str, str] = Depends(current_user),
+    minio_client=Depends(get_admin_minio_client),
+) -> Dict[str, List[Dict[str, Any]]]:
+    """List objects for the authenticated user.
 
     Args:
-        user: Authenticated user information (injected by dependency)
-        minio_client: Admin MinIO client instance (injected by dependency)
+        user: Authenticated user dictionary injected via dependency.
+        minio_client: Administrative MinIO client.
 
     Returns:
-        dict: List of objects with metadata (key, size, last_modified)
+        Dictionary containing object metadata entries.
 
     Raises:
-        HTTPException: 400 if listing fails
+        HTTPException: Raised if listing objects fails.
     """
     prefix = f"{user['username']}/"
-    objects = []
+    objects: List[Dict[str, Any]] = []
     try:
         for obj in minio_client.list_objects(BUCKET, prefix=prefix, recursive=True):
-            if not getattr(obj, "object_name", "").startswith(prefix):
+            object_name = getattr(obj, "object_name", "")
+            if not object_name.startswith(prefix):
                 continue
+            last_modified = getattr(obj, "last_modified", None)
             objects.append(
                 {
-                    "key": obj.object_name,
+                    "key": object_name,
                     "size": getattr(obj, "size", 0),
-                    "last_modified": getattr(obj, "last_modified", None).isoformat()
-                    if getattr(obj, "last_modified", None)
-                    else None,
+                    "last_modified": last_modified.isoformat() if last_modified else None,
                 }
             )
-        logger.info(f"listed objects for {user['username']}: {len(objects)} items")
+        LOGGER.info(
+            "Listed %d objects for user %s", len(objects), user["username"]
+        )
         return {"objects": objects}
-    except Exception as e:
-        logger.error(f"list objects failed for {user['username']}: {e}")
-        raise HTTPException(400, "failed to list objects")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Object list failed for %s: %s", user["username"], exc)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Failed to list objects.",
+        ) from exc
 
 
-# This block only runs when the script is executed directly
 if __name__ == "__main__":
-    logger.info("Starting application in direct execution mode")
     import uvicorn
 
+    LOGGER.info("Starting application in direct execution mode")
     uvicorn.run(app, host="0.0.0.0", port=8000)

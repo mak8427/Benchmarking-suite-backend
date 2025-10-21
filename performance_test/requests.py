@@ -1,70 +1,185 @@
-import sys, os, time, asyncio, httpx, multiprocessing as mp
+"""Asynchronous load generator for exercising HTTP endpoints."""
 
-URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:7800/"
-N = int(sys.argv[2]) if len(sys.argv) > 2 else 1_000_000
-TOTAL_CONCURRENCY = int(sys.argv[3]) if len(sys.argv) > 3 else 1000
-PROCESSES = int(sys.argv[4]) if len(sys.argv) > 4 else (os.cpu_count() or 1)
-TIMEOUT_S = float(sys.argv[5]) if len(sys.argv) > 5 else 2.0
-HTTP2 = bool(int(os.environ.get("HTTP2", "0")))
+from __future__ import annotations
 
-def split_load(n: int, parts: int):
-    base, rem = divmod(n, parts)
-    return [base + (1 if i < rem else 0) for i in range(parts)]
+import argparse
+import asyncio
+import multiprocessing as mp
+import os
+import sys
+import time
+from dataclasses import dataclass
+from typing import Iterable, Tuple
 
-async def bench_async(url: str, n: int, concurrency: int, timeout_s: float, http2: bool):
-    ok = 0
-    limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
-    timeout = httpx.Timeout(timeout_s)
-    async with httpx.AsyncClient(limits=limits, timeout=timeout, http2=http2, trust_env=False) as client:
+import httpx
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Configuration for a load generation run."""
+
+    url: str
+    requests: int
+    concurrency: int
+    processes: int
+    timeout: float
+    use_http2: bool
+
+
+def parse_args(argv: Iterable[str]) -> Settings:
+    """Parse CLI arguments into a Settings instance."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("url", help="Service base URL.")
+    parser.add_argument(
+        "requests",
+        type=int,
+        nargs="?",
+        default=1_000_000,
+        help="Total number of requests to issue.",
+    )
+    parser.add_argument(
+        "concurrency",
+        type=int,
+        nargs="?",
+        default=1_000,
+        help="Total concurrency level across all processes.",
+    )
+    parser.add_argument(
+        "processes",
+        type=int,
+        nargs="?",
+        default=os.cpu_count() or 1,
+        help="Number of worker processes to spawn.",
+    )
+    parser.add_argument(
+        "timeout",
+        type=float,
+        nargs="?",
+        default=2.0,
+        help="Request timeout in seconds.",
+    )
+    parser.add_argument(
+        "--http2",
+        action="store_true",
+        default=bool(int(os.environ.get("HTTP2", "0"))),
+        help="Enable HTTP/2 for requests.",
+    )
+    args = parser.parse_args(list(argv))
+    return Settings(
+        url=args.url,
+        requests=args.requests,
+        concurrency=args.concurrency,
+        processes=args.processes,
+        timeout=args.timeout,
+        use_http2=args.http2,
+    )
+
+
+def split_load(total_requests: int, parts: int) -> list[int]:
+    """Return an even distribution of work units."""
+    base, remainder = divmod(total_requests, parts)
+    return [base + (1 if idx < remainder else 0) for idx in range(parts)]
+
+
+async def bench_async(
+    url: str,
+    total_requests: int,
+    concurrency: int,
+    timeout_seconds: float,
+    use_http2: bool,
+) -> Tuple[int, int]:
+    """Issue HTTP GET requests and capture success/failure counts."""
+    succeeded = 0
+    limits = httpx.Limits(
+        max_connections=concurrency,
+        max_keepalive_connections=concurrency,
+    )
+    timeout = httpx.Timeout(timeout_seconds)
+    async with httpx.AsyncClient(
+        limits=limits,
+        timeout=timeout,
+        http2=use_http2,
+        trust_env=False,
+    ) as client:
         lock = asyncio.Lock()
-        it = iter(range(n))
+        iterator = iter(range(total_requests))
 
-        async def worker():
-            nonlocal ok
+        async def worker() -> None:
+            nonlocal succeeded
             while True:
                 async with lock:
                     try:
-                        next(it)
+                        next(iterator)
                     except StopIteration:
                         return
                 try:
-                    r = await client.get(url)
-                    if r.status_code == 200:
-                        ok += 1
-                except Exception:
-                    pass
+                    response = await client.get(url)
+                    if response.status_code == 200:
+                        succeeded += 1
+                except httpx.HTTPError:
+                    continue
 
-        tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
-        await asyncio.gather(*tasks)
-    return ok, n - ok
+        await asyncio.gather(*(asyncio.create_task(worker()) for _ in range(concurrency)))
+    return succeeded, total_requests - succeeded
 
-def proc_worker(url: str, n: int, concurrency: int, timeout_s: float, http2: bool, q: mp.Queue):
-    ok, fail = asyncio.run(bench_async(url, n, concurrency, timeout_s, http2))
-    q.put((ok, fail))
 
-def main():
-    procs = PROCESSES if PROCESSES > 0 else 1
-    conc_per_proc = max(1, TOTAL_CONCURRENCY // procs)
-    n_per_proc = split_load(N, procs)
+def proc_worker(
+    config: Settings,
+    requests_per_proc: int,
+    concurrency_per_proc: int,
+    queue: mp.Queue,
+) -> None:
+    """Run the asynchronous benchmark inside a separate process."""
+    succeeded, failed = asyncio.run(
+        bench_async(
+            config.url,
+            requests_per_proc,
+            concurrency_per_proc,
+            config.timeout,
+            config.use_http2,
+        )
+    )
+    queue.put((succeeded, failed))
 
-    q = mp.Queue()
-    ps = []
+
+def main(argv: Iterable[str] | None = None) -> None:
+    """Entry point for the CLI."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    settings = parse_args(args)
+
+    processes = max(1, settings.processes)
+    queue: mp.Queue = mp.Queue()
+
+    requests_per_proc = split_load(settings.requests, processes)
+    concurrency_per_proc = max(1, settings.concurrency // processes)
+
     start = time.time()
-    for i in range(procs):
-        p = mp.Process(target=proc_worker, args=(URL, n_per_proc[i], conc_per_proc, TIMEOUT_S, HTTP2, q))
-        p.start()
-        ps.append(p)
+    workers = []
+    for idx in range(processes):
+        process = mp.Process(
+            target=proc_worker,
+            args=(settings, requests_per_proc[idx], concurrency_per_proc, queue),
+        )
+        process.start()
+        workers.append(process)
 
-    ok = fail = 0
-    for _ in ps:
-        o, f = q.get()
-        ok += o
-        fail += f
-    for p in ps:
-        p.join()
+    succeeded = failed = 0
+    for _ in workers:
+        ok, err = queue.get()
+        succeeded += ok
+        failed += err
 
-    dur = time.time() - start
-    print(f"done: {N} in {dur:.2f}s, rps={N/dur:.1f}, ok={ok}, fail={fail}, procs={procs}, conc/proc={conc_per_proc}")
+    for process in workers:
+        process.join()
+
+    duration = time.time() - start
+    rate = settings.requests / duration if duration else 0.0
+    print(
+        f"done: {settings.requests} in {duration:.2f}s, "
+        f"rps={rate:.1f}, ok={succeeded}, fail={failed}, "
+        f"procs={processes}, conc/proc={concurrency_per_proc}"
+    )
+
 
 if __name__ == "__main__":
     main()

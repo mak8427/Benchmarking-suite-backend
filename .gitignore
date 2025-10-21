@@ -4,3 +4,9 @@ AGENTS.md
 process.log
 http-client.private.env.json
 http/http-client.private.env.json
+*.h5
+*.csv
+*.log
+*.csv
+*.h5
+*.log
