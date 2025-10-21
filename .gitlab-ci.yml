@@ -27,7 +27,7 @@ stages:
 lint:
   stage: lint
   <<: *setup
-  allow_failure: true  
+  allow_failure: true
   script:
     - pip install ruff
     - ruff check .
