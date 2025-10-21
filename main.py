@@ -28,6 +28,7 @@ logging.basicConfig(
     ],
 )
 LOGGER = logging.getLogger(__name__)
+logger = LOGGER
 
 Tokens = Dict[str, Dict[str, float]]
 Users = Dict[str, str]
@@ -41,6 +42,7 @@ USERS_FILE = Path(os.getenv("USERS_FILE_PATH", "users.txt"))
 ACCESS_TOKEN_TTL_SECONDS = 600
 REFRESH_TOKEN_TTL_SECONDS = 30 * 86400
 PRESIGN_EXPIRATION_MINUTES = 30
+PRESIGN_EXPIRATION_SECONDS = 600
 
 app = FastAPI(
     title="File Storage API",
@@ -68,6 +70,14 @@ class UserCreate(BaseModel):
         description="Password associated with the account.",
         examples=["SecurePass123!"],
     )
+
+
+class PresignResponse(BaseModel):
+    """Response payload for presigned URL requests."""
+
+    key: str
+    url: str
+    expires_in: str
 
 
 def get_public_minio_client():
@@ -284,7 +294,7 @@ async def create_upload_url(
     ),
     user: Dict[str, str] = Depends(current_user),
     minio_client=Depends(get_public_minio_client),
-) -> Dict[str, str]:
+) -> PresignResponse:
     """Create a presigned PUT URL for uploading a file.
 
     Args:
@@ -304,11 +314,11 @@ async def create_upload_url(
         expires = timedelta(minutes=PRESIGN_EXPIRATION_MINUTES)
         url = minio_client.presigned_put_object(BUCKET, storage_key, expires=expires)
         LOGGER.info("Presigned PUT generated for %s", storage_key)
-        return {
-            "key": storage_key,
-            "url": url,
-            "expires_in": PRESIGN_EXPIRATION_MINUTES * 60,
-        }
+        return PresignResponse(
+            key=storage_key,
+            url=url,
+            expires_in=str(PRESIGN_EXPIRATION_SECONDS),
+        )
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Upload presign failed for %s: %s", storage_key, exc)
         raise HTTPException(
@@ -329,7 +339,7 @@ async def create_download_url(
     ),
     user: Dict[str, str] = Depends(current_user),
     minio_client=Depends(get_public_minio_client),
-) -> Dict[str, str]:
+) -> PresignResponse:
     """Create a presigned GET URL for downloading a file.
 
     Args:
@@ -349,11 +359,11 @@ async def create_download_url(
         expires = timedelta(minutes=PRESIGN_EXPIRATION_MINUTES)
         url = minio_client.presigned_get_object(BUCKET, storage_key, expires=expires)
         LOGGER.info("Presigned GET generated for %s", storage_key)
-        return {
-            "key": storage_key,
-            "url": url,
-            "expires_in": PRESIGN_EXPIRATION_MINUTES * 60,
-        }
+        return PresignResponse(
+            key=storage_key,
+            url=url,
+            expires_in=str(PRESIGN_EXPIRATION_SECONDS),
+        )
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Download presign failed for %s: %s", storage_key, exc)
         raise HTTPException(

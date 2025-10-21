@@ -20,6 +20,7 @@ def test_presign_upload_flow(remote_api, remote_tokens):
     user, access_token, _ = remote_tokens
 
     ok = remote_api.presign_upload(access_token, "report.csv")
+    print(ok.status_code)
     assert ok.status_code == 200
     body = ok.json()
     assert body.get("url")
