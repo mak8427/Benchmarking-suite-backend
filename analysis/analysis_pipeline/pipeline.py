@@ -29,11 +29,13 @@ def _combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
     Returns:
         A unified DataFrame indexed by elapsed time.
     """
+    # Create unified timeline from all frames
     timeline = pl.concat(
         [frame.select("ElapsedTime") for _, frame in frames],
         how="vertical",
     ).unique().sort("ElapsedTime")
 
+    # Join all frames onto the timeline with prefixed column names
     combined = timeline
     for prefix, frame in frames:
         rename_map = {
@@ -46,6 +48,7 @@ def _combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
 
     combined = combined.sort("ElapsedTime")
 
+    # Interpolate numeric columns to fill gaps in the timeline
     interpolation_columns = [
         column
         for column, dtype in combined.schema.items()
@@ -86,11 +89,14 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
         config: Pipeline configuration and output directories.
         logger: Logger used for status updates.
     """
+    # Extract job identifier from filename
     job_id = file_path.stem.split("_")[0] if "_" in file_path.stem else file_path.stem
     logger.info("Processing %s", file_path.name)
 
     with h5py.File(file_path, "r") as h5_file:
+        # Process each top-level group in the HDF5 file
         for group_name, group_node in h5_file.items():
+            # Collect all datasets from this group (handles both flat datasets and nested structures)
             path_prefix = [group_name]
             datasets = (
                 [(path_prefix, group_node)]
@@ -98,6 +104,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 else list(iter_datasets(group_node, path_prefix))
             )
 
+            # Convert each dataset to polars DataFrame with validation
             frames: List[Tuple[str, pl.DataFrame]] = []
             for dataset_path_parts, dataset in datasets:
                 try:
@@ -111,6 +118,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                     )
                     continue
 
+                # Skip empty datasets
                 if df.is_empty():
                     logger.warning(
                         "Data missing for %s in %s: dataset empty",
@@ -119,6 +127,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                     )
                     continue
 
+                # Validate NodePower data (skip if all zeros)
                 if "NodePower" in df.columns:
                     node_power = df["NodePower"].fill_null(0)
                     if node_power.sum() == 0:
@@ -129,8 +138,9 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                         )
                         continue
 
+                # Ensure ElapsedTime column exists and normalize it
                 if "ElapsedTime" not in df.columns:
-                    df = df.with_row_count("ElapsedTime")
+                    df = df.with_row_index("ElapsedTime")
 
                 df = df.sort("ElapsedTime").with_columns(
                     pl.col("ElapsedTime").cast(pl.UInt64)
@@ -138,6 +148,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 prefix = dataset_prefix(dataset_path_parts)
                 frames.append((prefix, df))
 
+            # Skip group if no valid datasets found
             if not frames:
                 logger.warning(
                     "No usable datasets for %s in %s",
@@ -146,8 +157,10 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 )
                 continue
 
+            # Merge all frames into single time-aligned DataFrame
             combined = _combine_frames(frames)
 
+            # Identify and standardize epoch time column
             epoch_candidates = [
                 column for column in combined.columns if column.endswith("__EpochTime")
             ]
@@ -162,12 +175,13 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                     pl.col(epoch_column).cast(pl.Int64).alias("EpochTime")
                 )
 
+            # Compute derived metrics and energy profile
             combined = add_task_derivatives(combined)
-
             combined, metrics = compute_energy_profile(
                 combined, job_id, group_name, logger=logger
             )
 
+            # Define output file paths
             output_name = sanitize_parts([file_path.stem, group_name, "combined"])
             data_output_path = config.output_dir / f"{output_name}.csv"
             stats_output_path = config.stats_dir / f"{output_name}_stats.csv"
@@ -176,6 +190,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 config.price_dir / f"{output_name}_price.csv" if config.fetch_price else None
             )
 
+            # Write summary metrics if available
             if metrics:
                 summary_df = build_summary_dataframe(job_id, group_name, metrics)
                 summary_df.write_csv(summary_output_path)
@@ -185,6 +200,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 )
                 logger.info(metrics["appliance_description"])
 
+            # Integrate pricing data if enabled
             price_df = None
             active_epoch_column = (
                 "EpochTime" if "EpochTime" in combined.columns else epoch_column
@@ -198,6 +214,8 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                     resolution=config.price.resolution,
                     logger=logger,
                 )
+
+                # Save price data and log total cost
                 if price_df is not None and price_output_path is not None:
                     price_df.write_csv(price_output_path)
                     logger.info(
@@ -221,11 +239,12 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                     group_name,
                 )
 
+            # Write final combined data and statistics
             combined.write_csv(data_output_path)
-
             stats_df = combined.describe()
             stats_df.write_csv(stats_output_path)
 
+            # Log completion status
             logger.info(
                 "Saved combined data -> %s",
                 data_output_path.relative_to(config.base_dir),
@@ -249,13 +268,16 @@ def run_pipeline(config: PipelineConfig, *, logger) -> None:
         config: Pipeline configuration specifying inputs and outputs.
         logger: Logger used for status updates.
     """
+    # Validate configuration and create necessary directories
     validate_source(config)
     ensure_directories(config)
 
+    # Collect all HDF5 files to process
     h5_files = collect_h5_files(config)
     if not h5_files:
         logger.warning("No .h5 files found in %s", config.source_dir)
         return
 
+    # Process each file sequentially
     for file_path in h5_files:
         process_h5_file(file_path, config, logger=logger)
