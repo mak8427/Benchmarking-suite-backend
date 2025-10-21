@@ -51,3 +51,4 @@ remote-tests:
   rules:
     - if: '$REMOTE_BASE_URL'
     - when: manual
+
