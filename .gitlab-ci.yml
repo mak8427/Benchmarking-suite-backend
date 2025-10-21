@@ -1,0 +1,53 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+image: python:3.12
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  key: "$CI_JOB_NAME"
+  paths:
+    - .cache/pip
+
+.setup: &setup
+  before_script:
+    - python --version
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt
+
+stages:
+  - lint
+  - test
+  - remote
+
+lint:
+  stage: lint
+  <<: *setup
+  script:
+    - pip install ruff
+    - ruff check .
+
+pytest:
+  stage: test
+  needs:
+    - lint
+  <<: *setup
+  script:
+    - pip install pytest
+    - pytest tests
+
+remote-tests:
+  stage: remote
+  needs:
+    - pytest
+  <<: *setup
+  script:
+    - pip install pytest
+    - pytest tests/
+  rules:
+    - if: '$REMOTE_BASE_URL'
+    - when: manual

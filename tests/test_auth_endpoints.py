@@ -5,12 +5,26 @@ import pytest
 import main
 
 
-def register(client, username="user123", password="strongPASS1"):
-    return client.post("/auth/register", json={"username": username, "password": password})
+def register(client, username: str = "user123", password: str = "strongPASS1"):
+    """Helper to register a user within tests."""
+    return client.post(
+        "/auth/register",
+        json={
+            "username": username,
+            "password": password,
+        },
+    )
 
 
-def login(client, username="user123", password="strongPASS1"):
-    return client.post("/auth/password", params={"u": username, "p": password})
+def login(client, username: str = "user123", password: str = "strongPASS1"):
+    """Helper to authenticate a user within tests."""
+    return client.post(
+        "/auth/password",
+        params={
+            "u": username,
+            "p": password,
+        },
+    )
 
 
 def test_register_creates_user_and_tokens(client):

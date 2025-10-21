@@ -1,12 +1,11 @@
+"""MinIO client configuration and shared constants."""
+
+from __future__ import annotations
+
 import os
 import re
-import datetime as dt
-from typing import Tuple
 
 from minio import Minio
-from minio.error import S3Error
-import jwt
-from jwt import InvalidTokenError
 
 DEFAULT_MINIO_ENDPOINT = os.getenv("MINIO_DEFAULT_ENDPOINT", "localhost:9000")
 
@@ -31,5 +30,4 @@ BUCKET = os.getenv("MINIO_BUCKET") or "mybucket"
 
 
 _slug_re = re.compile(r"[^a-z0-9-]+")
-
 
