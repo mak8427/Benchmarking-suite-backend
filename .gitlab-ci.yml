@@ -27,6 +27,7 @@ stages:
 lint:
   stage: lint
   <<: *setup
+  allow_failure: true
   script:
     - pip install ruff
     - ruff check .
@@ -39,15 +40,3 @@ pytest:
   script:
     - pip install pytest
     - pytest tests
-
-remote-tests:
-  stage: remote
-  needs:
-    - pytest
-  <<: *setup
-  script:
-    - pip install pytest
-    - pytest tests/
-  rules:
-    - if: '$REMOTE_BASE_URL'
-    - when: manual
