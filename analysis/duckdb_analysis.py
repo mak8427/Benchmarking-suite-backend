@@ -24,7 +24,7 @@ from analysis_pipeline.energy import (
     compute_energy_profile,
 )
 import polars as pl
-
+import os
 
 def timing_decorator(func):
     """Decorator to measure and log function execution time."""
@@ -344,6 +344,7 @@ if __name__ ==  "__main__":
 
     #1) Load the data
     base_dir = Path(__file__).resolve().parent
+    password = os.getenv("POSTGRES_PASSWORD", "")
     print(f"Base directory: {base_dir}")
     config = PipelineConfig.from_args(build_parser().parse_args([]), base_dir=base_dir)
     print(f"Config: {config}")
@@ -370,8 +371,27 @@ if __name__ ==  "__main__":
 
     logger.info("Detected %d file(s) for analysis.", len(h5_files))
 
-
     logger.info("Step 3/4: Processing HDF5 files...")
+    step3_start = time.perf_counter()
+
+    logger.info("Initializing DuckDB connection...")
+    db_init_start = time.perf_counter()
+    i = 0
+    con = duckdb.connect()
+    logger.info("⏱️  DuckDB connection created in %.3f seconds", time.perf_counter() - db_init_start)
+
+    logger.info("Installing and loading PostgreSQL extension...")
+    pg_setup_start = time.perf_counter()
+    con.execute("INSTALL postgres;")
+    con.execute("LOAD postgres;")
+    logger.info("⏱️  PostgreSQL extension setup took %.3f seconds", time.perf_counter() - pg_setup_start)
+
+    logger.info("Attaching to PostgreSQL database...")
+    attach_start = time.perf_counter()
+    conn_str = f"host=127.0.0.1 port=5432 dbname=postgres user=postgres password={password}"
+    con.execute(f"ATTACH '{conn_str}' AS pg (TYPE postgres);")
+    logger.info("⏱️  PostgreSQL attachment took %.3f seconds", time.perf_counter() - attach_start)
+
     for idx, file_path in enumerate(h5_files, 1):
         logger.info("=" * 60)
         logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_path.name)
@@ -379,13 +399,27 @@ if __name__ ==  "__main__":
 
         dataframe = h5_to_dataframe(file_path, config, logger=logger)
 
+        logger.info("⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start)
+
+        logger.info("Registering dataframe in DuckDB...")
+        register_start = time.perf_counter()
+        con.register(f"dataframe_{i}", dataframe)
+        logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
+
+        logger.info("Dropping existing PostgreSQL table if present...")
+        drop_start = time.perf_counter()
+        con.execute(f"DROP TABLE IF EXISTS pg.public.my_table_{i};")
+        logger.info("⏱️  DROP TABLE took %.3f seconds", time.perf_counter() - drop_start)
+
+        logger.info("Creating PostgreSQL table from dataframe...")
+        create_start = time.perf_counter()
+        con.execute(f"CREATE TABLE pg.public.my_table_{i} AS SELECT * FROM dataframe_{i};")
+        logger.info("⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start)
+
+        i = i + 1
         logger.info("⏱️  Total file processing took %.3f seconds", time.perf_counter() - file_start)
 
-        logger.info("Executing DuckDB query...")
-        query_start = time.perf_counter()
-        duckdb.sql("SELECT * FROM dataframe").show()
-        logger.info("⏱️  DuckDB query took %.3f seconds", time.perf_counter() - query_start)
-
+    logger.info("⏱️  Step 3 (all files) took %.3f seconds", time.perf_counter() - step3_start)
     logger.info("=" * 60)
     logger.info("🎉 Pipeline completed successfully!")
     logger.info("⏱️  Total pipeline execution took %.3f seconds", time.perf_counter() - pipeline_start)
