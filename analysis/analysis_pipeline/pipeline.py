@@ -20,53 +20,55 @@ from .energy import (
 from .pricing import integrate_price_data
 
 
-def _combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
-    """Merge task/energy frames on elapsed time and interpolate numeric fields.
+def combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
+        """Merge task/energy frames on elapsed time and interpolate numeric fields.
 
-    Args:
-        frames: List of (prefix, dataframe) pairs to merge.
+        Args:
+            frames: List of (prefix, dataframe) pairs to merge.
 
-    Returns:
-        A unified DataFrame indexed by elapsed time.
-    """
-    # Create unified timeline from all frames
-    timeline = pl.concat(
-        [frame.select("ElapsedTime") for _, frame in frames],
-        how="vertical",
-    ).unique().sort("ElapsedTime")
+        Returns:
+            A unified DataFrame indexed by elapsed time.
+        """
+        # Create unified timeline from all frames
+        timeline = pl.concat(
+            [frame.select("ElapsedTime") for _, frame in frames],
+            how="vertical",
+        ).unique().sort("ElapsedTime")
 
-    # Join all frames onto the timeline with prefixed column names
-    combined = timeline
-    for prefix, frame in frames:
-        rename_map = {
-            column: f"{prefix}__{column}"
-            for column in frame.columns
-            if column != "ElapsedTime"
-        }
-        joined = frame.rename(rename_map)
-        combined = combined.join(joined, on="ElapsedTime", how="left")
+        # Ensure timeline ElapsedTime is UInt64
+        timeline = timeline.with_columns(pl.col("ElapsedTime").cast(pl.UInt64))
 
-    combined = combined.sort("ElapsedTime")
+        # Join all frames onto the timeline with prefixed column names
+        combined = timeline
+        for prefix, frame in frames:
+            rename_map = {
+                column: f"{prefix}__{column}"
+                for column in frame.columns
+                if column != "ElapsedTime"
+            }
+            joined = frame.rename(rename_map)
+            combined = combined.join(joined, on="ElapsedTime", how="left")
 
-    # Interpolate numeric columns to fill gaps in the timeline
-    interpolation_columns = [
-        column
-        for column, dtype in combined.schema.items()
-        if column != "ElapsedTime" and getattr(dtype, "is_numeric", lambda: False)()
-    ]
+        combined = combined.sort("ElapsedTime")
 
-    if interpolation_columns:
-        combined = combined.with_columns(
-            [
-                pl.col(column)
-                .cast(pl.Float64)
-                .interpolate()
-                .alias(column)
-                for column in interpolation_columns
-            ]
-        )
+        # Interpolate numeric columns EXCEPT ElapsedTime
+        interpolation_columns = [
+            column
+            for column, dtype in combined.schema.items()
+            if column != "ElapsedTime" and getattr(dtype, "is_numeric", lambda: False)()
+        ]
 
-    return combined
+        if interpolation_columns:
+            combined = combined.with_columns(
+                [
+                    pl.col(column)
+                    .cast(pl.Float64)
+                    .interpolate()
+                    .alias(column)
+                    for column in interpolation_columns
+                ]
+            )
+        return combined
 
 
 def collect_h5_files(config: PipelineConfig) -> List[Path]:
@@ -158,7 +160,7 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
                 continue
 
             # Merge all frames into single time-aligned DataFrame
-            combined = _combine_frames(frames)
+            combined = combine_frames(frames)
 
             # Identify and standardize epoch time column
             epoch_candidates = [
