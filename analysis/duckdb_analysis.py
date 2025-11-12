@@ -342,8 +342,6 @@ if __name__ ==  "__main__":
 
     pipeline_start = time.perf_counter()
 
-    DEFAULT_MINIO_ENDPOINT = os.getenv("MINIO_DEFAULT_ENDPOINT", "localhost:9000")
-
     from minio import Minio
     import os
     from tempfile import NamedTemporaryFile
@@ -351,6 +349,7 @@ if __name__ ==  "__main__":
 
     access = os.getenv("MINIO_ACCESS_KEY")
     secret = os.getenv("MINIO_SECRET_KEY")
+    endpoint = os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000")
     print("Using MinIO credentials:", access, secret is not None)
 
     client = Minio(endpoint,
