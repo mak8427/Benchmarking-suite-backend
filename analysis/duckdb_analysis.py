@@ -1,6 +1,5 @@
 
 from __future__ import annotations
-import pandera as pa
 import h5py
 from pathlib import Path
 import duckdb
