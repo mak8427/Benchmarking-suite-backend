@@ -340,32 +340,31 @@ def h5_to_dataframe(file_path: Path, config: PipelineConfig, *, logger) -> pl.da
 
 if __name__ ==  "__main__":
 
-
-    from tempfile import NamedTemporaryFile
-    from pathlib import Path
-    from minio import Minio
-
-
     pipeline_start = time.perf_counter()
 
     DEFAULT_MINIO_ENDPOINT = os.getenv("MINIO_DEFAULT_ENDPOINT", "localhost:9000")
 
-
-
+    from minio import Minio
+    import os
+    from tempfile import NamedTemporaryFile
+    from pathlib import Path
 
     ADMIN_MINIO = Minio(
-        os.getenv("MINIO_ADMIN_ENDPOINT", DEFAULT_MINIO_ENDPOINT),
+        os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000"),
         access_key=os.getenv("MINIO_ACCESS_KEY"),
         secret_key=os.getenv("MINIO_SECRET_KEY"),
         secure=False,
     )
 
-    def get_minio_object(bucket, object_name) -> Path:
+
+    def get_minio_object(bucket: str, object_name: str,
+                         client: Minio = ADMIN_MINIO) -> Path:
         tmp = NamedTemporaryFile(delete=False, suffix=".h5")
         client.fget_object(bucket, object_name, tmp.name)
         return Path(tmp.name)
 
 
+    # Usage
     path = get_minio_object("benchwrap", "10362007_0_c0137.h5")
     df = h5_to_dataframe(path, config, logger)
     print(df)
