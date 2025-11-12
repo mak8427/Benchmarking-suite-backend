@@ -343,6 +343,7 @@ if __name__ ==  "__main__":
 
     from tempfile import NamedTemporaryFile
     from pathlib import Path
+    from minio import Minio
 
 
     pipeline_start = time.perf_counter()
