@@ -25,6 +25,53 @@ from analysis_pipeline.energy import (
 import polars as pl
 import os
 
+
+def _truthy(value: str | None) -> bool:
+    """Return True when *value* represents a truthy string."""
+
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mask_secret(value: str | None, visible: int = 4) -> str:
+    """Return a masked representation of sensitive strings."""
+
+    if not value:
+        return "<missing>"
+    if len(value) <= visible:
+        return "*" * len(value)
+    return f"{value[:visible]}***"
+
+
+def resolve_minio_settings() -> dict[str, str | bool]:
+    """Collect MinIO/S3 connection details from environment variables."""
+
+    access = os.getenv("MINIO_ACCESS_KEY") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret = os.getenv("MINIO_SECRET_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+    endpoint = (
+        os.getenv("MINIO_ADMIN_ENDPOINT")
+        or os.getenv("MINIO_PUBLIC_ENDPOINT")
+        or os.getenv("MINIO_ENDPOINT")
+        or os.getenv("AWS_ENDPOINT_URL")
+    )
+    bucket = os.getenv("MINIO_BUCKET", "benchwrap")
+    prefix = os.getenv("MINIO_OBJECT_PREFIX", "PENEENORMEPENEENORME/")
+    if prefix.startswith("/"):
+        prefix = prefix[1:]
+    if prefix and not prefix.endswith("/"):
+        prefix = f"{prefix}/"
+    secure = _truthy(os.getenv("MINIO_SECURE"))
+
+    return {
+        "access": access,
+        "secret": secret,
+        "endpoint": endpoint,
+        "bucket": bucket,
+        "prefix": prefix,
+        "secure": secure,
+    }
+
 def timing_decorator(func):
     """Decorator to measure and log function execution time."""
     @wraps(func)
@@ -343,39 +390,81 @@ if __name__ ==  "__main__":
     pipeline_start = time.perf_counter()
 
     from minio import Minio
-    import os
+    from minio.error import S3Error
     from tempfile import NamedTemporaryFile
-    from pathlib import Path
 
-    import os
+    minio_settings = resolve_minio_settings()
+    missing = [
+        name
+        for name in ("endpoint", "access", "secret")
+        if not minio_settings.get(name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing MinIO configuration for: "
+            + ", ".join(missing)
+            + ". Ensure MINIO_ACCESS_KEY, MINIO_SECRET_KEY, and MINIO_ADMIN_ENDPOINT "
+            "(or compatible variables) are defined."
+        )
 
-    print("MINIO_ACCESS_KEY =", repr(os.getenv("MINIO_ACCESS_KEY")))
-    print("MINIO_SECRET_KEY =", repr(os.getenv("MINIO_SECRET_KEY")))
-    print("MINIO_ADMIN_ENDPOINT =", os.getenv("MINIO_ADMIN_ENDPOINT"))
+    print(
+        "Connecting to MinIO endpoint",
+        minio_settings["endpoint"],
+        f"secure={minio_settings['secure']}",
+    )
+    print("Using access key:", _mask_secret(minio_settings["access"]))
 
-    print("Using MinIO credentials:", access, secret is not None)
-
-    client = Minio(endpoint,
-                   access_key=access,
-                   secret_key=secret,
-                   secure=False)
+    client = Minio(
+        minio_settings["endpoint"],
+        access_key=minio_settings["access"],
+        secret_key=minio_settings["secret"],
+        secure=bool(minio_settings["secure"]),
+    )
 
     # List buckets
-    for b in client.list_buckets():
-        print("Bucket:", b.name)
+    try:
+        for b in client.list_buckets():
+            print("Bucket:", b.name)
+    except S3Error as exc:
+        raise RuntimeError(
+            "Unable to list buckets - verify access key/secret pair."
+        ) from exc
 
     # List objects in benchwrap prefix
-    for obj in client.list_objects("benchwrap", prefix="PENEENORMEPENEENORME/", recursive=True):
-        print("Object:", obj.object_name)
+    print(
+        "Scanning bucket",
+        minio_settings["bucket"],
+        "prefix",
+        minio_settings["prefix"],
+    )
+    try:
+        for obj in client.list_objects(
+            minio_settings["bucket"],
+            prefix=minio_settings["prefix"],
+            recursive=True,
+        ):
+            print("Object:", obj.object_name)
+    except S3Error as exc:
+        raise RuntimeError(
+            f"Unable to list objects under {minio_settings['bucket']}/"
+            f"{minio_settings['prefix']} - check bucket name and permissions."
+        ) from exc
 
 
     def get_minio_object(bucket: str, object_name: str, client=client) -> Path:
         tmp = NamedTemporaryFile(delete=False, suffix=".h5")
-        client.fget_object(bucket, object_name, tmp.name)
+        try:
+            client.fget_object(bucket, object_name, tmp.name)
+        except S3Error as exc:
+            raise RuntimeError(
+                f"Failed to download {bucket}/{object_name}: {exc.code}"
+            ) from exc
         return Path(tmp.name)
 
-
-    path = get_minio_object("benchwrap", "PENEENORMEPENEENORME/10362007_0_c0137.h5")
+    path = get_minio_object(
+        minio_settings["bucket"],
+        f"{minio_settings['prefix']}10362007_0_c0137.h5",
+    )
     df = h5_to_dataframe(path, config, logger)
     print(df)
 
