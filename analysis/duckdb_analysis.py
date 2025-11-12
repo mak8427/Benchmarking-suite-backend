@@ -349,22 +349,24 @@ if __name__ ==  "__main__":
     from tempfile import NamedTemporaryFile
     from pathlib import Path
 
+    access = os.getenv("MINIO_ACCESS_KEY")
+    secret = os.getenv("MINIO_SECRET_KEY")
+    print("Using MinIO credentials:", access, secret is not None)
+
     ADMIN_MINIO = Minio(
         os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000"),
-        access_key=os.getenv("MINIO_ACCESS_KEY"),
-        secret_key=os.getenv("MINIO_SECRET_KEY"),
-        secure=False,
+        access_key=access,
+        secret_key=secret,
+        secure=False
     )
 
 
-    def get_minio_object(bucket: str, object_name: str,
-                         client: Minio = ADMIN_MINIO) -> Path:
+    def get_minio_object(bucket: str, object_name: str, client=ADMIN_MINIO) -> Path:
         tmp = NamedTemporaryFile(delete=False, suffix=".h5")
         client.fget_object(bucket, object_name, tmp.name)
         return Path(tmp.name)
 
 
-    # Usage
     path = get_minio_object("benchwrap", "PENEENORMEPENEENORME/10362007_0_c0137.h5")
     df = h5_to_dataframe(path, config, logger)
     print(df)
