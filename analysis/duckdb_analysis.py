@@ -353,15 +353,21 @@ if __name__ ==  "__main__":
     secret = os.getenv("MINIO_SECRET_KEY")
     print("Using MinIO credentials:", access, secret is not None)
 
-    ADMIN_MINIO = Minio(
-        os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000"),
-        access_key=access,
-        secret_key=secret,
-        secure=False
-    )
+    client = Minio(endpoint,
+                   access_key=access,
+                   secret_key=secret,
+                   secure=False)
+
+    # List buckets
+    for b in client.list_buckets():
+        print("Bucket:", b.name)
+
+    # List objects in benchwrap prefix
+    for obj in client.list_objects("benchwrap", prefix="PENEENORMEPENEENORME/", recursive=True):
+        print("Object:", obj.object_name)
 
 
-    def get_minio_object(bucket: str, object_name: str, client=ADMIN_MINIO) -> Path:
+    def get_minio_object(bucket: str, object_name: str, client=client) -> Path:
         tmp = NamedTemporaryFile(delete=False, suffix=".h5")
         client.fget_object(bucket, object_name, tmp.name)
         return Path(tmp.name)
