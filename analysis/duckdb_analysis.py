@@ -347,9 +347,12 @@ if __name__ ==  "__main__":
     from tempfile import NamedTemporaryFile
     from pathlib import Path
 
-    access = os.getenv("MINIO_ACCESS_KEY")
-    secret = os.getenv("MINIO_SECRET_KEY")
-    endpoint = os.getenv("MINIO_ADMIN_ENDPOINT", "localhost:9000")
+    import os
+
+    print("MINIO_ACCESS_KEY =", repr(os.getenv("MINIO_ACCESS_KEY")))
+    print("MINIO_SECRET_KEY =", repr(os.getenv("MINIO_SECRET_KEY")))
+    print("MINIO_ADMIN_ENDPOINT =", os.getenv("MINIO_ADMIN_ENDPOINT"))
+
     print("Using MinIO credentials:", access, secret is not None)
 
     client = Minio(endpoint,
