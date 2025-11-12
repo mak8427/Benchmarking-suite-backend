@@ -461,13 +461,6 @@ if __name__ ==  "__main__":
             ) from exc
         return Path(tmp.name)
 
-    path = get_minio_object(
-        minio_settings["bucket"],
-        f"{minio_settings['prefix']}10362007_0_c0137.h5",
-    )
-    df = h5_to_dataframe(path, config, logger)
-    print(df)
-
     #1) Load the data
     base_dir = Path(__file__).resolve().parent
     password = os.getenv("POSTGRES_PASSWORD", "")
@@ -475,6 +468,14 @@ if __name__ ==  "__main__":
     config = PipelineConfig.from_args(build_parser().parse_args([]), base_dir=base_dir)
     print(f"Config: {config}")
     logger = configure_logging(config.log_file)
+
+    target_object = os.getenv(
+        "MINIO_OBJECT_NAME",
+        f"{minio_settings['prefix']}10362007_0_c0137.h5",
+    )
+    path = get_minio_object(minio_settings["bucket"], target_object)
+    df = h5_to_dataframe(path, config, logger)
+    print(df)
 
 
 
