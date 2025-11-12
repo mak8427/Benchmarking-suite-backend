@@ -469,13 +469,26 @@ if __name__ ==  "__main__":
     print(f"Config: {config}")
     logger = configure_logging(config.log_file)
 
-    target_object = os.getenv(
-        "MINIO_OBJECT_NAME",
-        f"{minio_settings['prefix']}10362007_0_c0137.h5",
-    )
-    path = get_minio_object(minio_settings["bucket"], target_object)
-    df = h5_to_dataframe(path, config, logger)
-    print(df)
+    minio_files = []
+    try:
+        for obj in client.list_objects(
+            minio_settings["bucket"],
+            prefix=minio_settings["prefix"],
+            recursive=True,
+        ):
+            if obj.object_name.endswith(".h5"):
+                minio_files.append(obj.object_name)
+    except S3Error as exc:
+        raise RuntimeError(
+            "Unable to enumerate objects for processing"
+        ) from exc
+
+    if not minio_files:
+        raise RuntimeError(
+            f"No .h5 files found under {minio_settings['bucket']}"
+            f"/{minio_settings['prefix']}"
+        )
+
 
 
 
@@ -488,7 +501,15 @@ if __name__ ==  "__main__":
 
     logger.info("Step 2/4: discovering input HDF5 files under %s.", config.source_dir)
     step_start = time.perf_counter()
-    h5_files = collect_h5_files(config)
+    local_files = collect_h5_files(config)
+    remote_files = [] if not os.getenv("MINIO_SYNC") else minio_files
+
+    h5_files = []
+    if local_files:
+        h5_files.extend(local_files)
+    for object_name in remote_files:
+        path = get_minio_object(minio_settings["bucket"], object_name)
+        h5_files.append(path)
     logger.info("⏱️  File discovery took %.3f seconds", time.perf_counter() - step_start)
 
     print(f"h5_files: {h5_files}")
@@ -524,7 +545,7 @@ if __name__ ==  "__main__":
         logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_path.name)
         file_start = time.perf_counter()
 
-        dataframe = h5_to_dataframe(file_path, config, logger=logger)
+        dataframe = h5_to_dataframe(file_path, config=config, logger=logger)
 
         logger.info("⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start)
 
