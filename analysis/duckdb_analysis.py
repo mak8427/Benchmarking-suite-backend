@@ -365,7 +365,7 @@ if __name__ ==  "__main__":
 
 
     # Usage
-    path = get_minio_object("benchwrap", "10362007_0_c0137.h5")
+    path = get_minio_object("benchwrap", "PENEENORMEPENEENORME/10362007_0_c0137.h5")
     df = h5_to_dataframe(path, config, logger)
     print(df)
 
