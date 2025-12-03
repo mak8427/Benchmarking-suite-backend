@@ -56,7 +56,7 @@ def resolve_minio_settings() -> dict[str, str | bool]:
         or os.getenv("AWS_ENDPOINT_URL")
     )
     bucket = os.getenv("MINIO_BUCKET", "benchwrap")
-    prefix = os.getenv("MINIO_OBJECT_PREFIX", "PENEENORMEPENEENORME/")
+    prefix = os.getenv("MINIO_OBJECT_PREFIX", "cane12345/")
     if prefix.startswith("/"):
         prefix = prefix[1:]
     if prefix and not prefix.endswith("/"):
