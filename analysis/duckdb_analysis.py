@@ -1,11 +1,16 @@
 
 from __future__ import annotations
-import h5py
-from pathlib import Path
-import duckdb
+
+import os
 import time
 from functools import wraps
+from pathlib import Path
 from typing import List, Tuple
+
+import duckdb
+import h5py
+import polars as pl
+
 
 from analysis_pipeline import (
     PipelineConfig,
@@ -22,8 +27,10 @@ from analysis_pipeline.energy import (
     build_summary_dataframe,
     compute_energy_profile,
 )
-import polars as pl
-import os
+
+
+class HDF5OpenError(RuntimeError):
+    """Raised when an HDF5 file cannot be opened (e.g., truncated)."""
 
 
 def _truthy(value: str | None) -> bool:
@@ -71,6 +78,34 @@ def resolve_minio_settings() -> dict[str, str | bool]:
         "prefix": prefix,
         "secure": secure,
     }
+
+
+def validate_h5_file(file_path: Path, *, logger) -> bool:
+    """Return True when the HDF5 file looks readable; otherwise log and return False."""
+
+    if not file_path.exists():
+        logger.error("Skipping %s: file does not exist", file_path)
+        return False
+
+    try:
+        size = file_path.stat().st_size
+    except OSError as exc:  # noqa: BLE001
+        logger.error("Skipping %s: cannot stat file (%s)", file_path, exc)
+        return False
+
+    if size == 0:
+        logger.error("Skipping %s: file is empty", file_path)
+        return False
+
+    try:
+        if not h5py.is_hdf5(file_path):
+            logger.error("Skipping %s: not a valid HDF5 file", file_path)
+            return False
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Skipping %s: HDF5 validation failed (%s)", file_path, exc)
+        return False
+
+    return True
 
 def timing_decorator(func):
     """Decorator to measure and log function execution time."""
@@ -250,138 +285,148 @@ def h5_to_dataframe(file_path: Path, config: PipelineConfig, *, logger) -> pl.da
     job_id = file_path.stem.split("_")[0] if "_" in file_path.stem else file_path.stem
     logger.info("Processing %s", file_path.name)
 
-    with h5py.File(file_path, "r") as h5_file:
-        # Process each top-level group in the HDF5 file
-        for group_name, group_node in h5_file.items():
-            # Collect all datasets from this group (handles both flat datasets and nested structures)
-            path_prefix = [group_name]
-            datasets = (
-                [(path_prefix, group_node)]
-                if isinstance(group_node, h5py.Dataset)
-                else list(iter_datasets(group_node, path_prefix))
-            )
+    try:
+        with h5py.File(file_path, "r") as h5_file:
+            # Process each top-level group in the HDF5 file
+            for group_name, group_node in h5_file.items():
+                # Collect all datasets from this group (handles both flat datasets and nested structures)
+                path_prefix = [group_name]
+                datasets = (
+                    [(path_prefix, group_node)]
+                    if isinstance(group_node, h5py.Dataset)
+                    else list(iter_datasets(group_node, path_prefix))
+                )
 
-            # Convert each dataset to polars DataFrame with validation
-            frames: List[Tuple[str, pl.DataFrame]] = []
-            for dataset_path_parts, dataset in datasets:
-                try:
-                    df = dataset_to_polars(dataset)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception(
-                        "Skipping dataset %s in %s due to error: %s",
-                        "/".join(dataset_path_parts),
-                        file_path.name,
-                        exc,
-                    )
-                    continue
+                # Convert each dataset to polars DataFrame with validation
+                frames: List[Tuple[str, pl.DataFrame]] = []
+                for dataset_path_parts, dataset in datasets:
+                    try:
+                        df = dataset_to_polars(dataset)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception(
+                            "Skipping dataset %s in %s due to error: %s",
+                            "/".join(dataset_path_parts),
+                            file_path.name,
+                            exc,
+                        )
+                        continue
 
-                # Skip empty datasets
-                if df.is_empty():
-                    logger.warning(
-                        "Data missing for %s in %s: dataset empty",
-                        "/".join(dataset_path_parts),
-                        file_path.name,
-                    )
-                    continue
-
-                # Validate NodePower data (skip if all zeros)
-                if "NodePower" in df.columns:
-                    node_power = df["NodePower"].fill_null(0)
-                    if node_power.sum() == 0:
+                    # Skip empty datasets
+                    if df.is_empty():
                         logger.warning(
-                            "Data missing for %s in %s: NodePower contains only zeros",
+                            "Data missing for %s in %s: dataset empty",
                             "/".join(dataset_path_parts),
                             file_path.name,
                         )
                         continue
 
-                # Ensure ElapsedTime column exists and normalize it
-                if "ElapsedTime" not in df.columns:
-                    df = df.with_row_index("ElapsedTime")
+                    # Validate NodePower data (skip if all zeros)
+                    if "NodePower" in df.columns:
+                        node_power = df["NodePower"].fill_null(0)
+                        if node_power.sum() == 0:
+                            logger.warning(
+                                "Data missing for %s in %s: NodePower contains only zeros",
+                                "/".join(dataset_path_parts),
+                                file_path.name,
+                            )
+                            continue
+
+                    # Ensure ElapsedTime column exists and normalize it
+                    if "ElapsedTime" not in df.columns:
+                        df = df.with_row_index("ElapsedTime")
 
 
-                df = df.sort("ElapsedTime").with_columns(
-                    pl.col("ElapsedTime").cast(pl.UInt64)
-                )
+                    df = df.sort("ElapsedTime").with_columns(
+                        pl.col("ElapsedTime").cast(pl.UInt64)
+                    )
 
-                prefix = dataset_prefix(dataset_path_parts)
-                frames.append((prefix, df))
+                    prefix = dataset_prefix(dataset_path_parts)
+                    frames.append((prefix, df))
 
 
-            # Skip group if no valid datasets found
-            if not frames:
-                logger.warning(
-                    "No usable datasets for %s in %s",
-                    group_name,
-                    file_path.name,
-                )
-                continue
+                # Skip group if no valid datasets found
+                if not frames:
+                    logger.warning(
+                        "No usable datasets for %s in %s",
+                        group_name,
+                        file_path.name,
+                    )
+                    continue
 
-            # Merge all frames into single time-aligned DataFrame
-            logger.info("Combining %d frames...", len(frames))
-            start_time = time.perf_counter()
-            combined = combine_frames(frames)
-            logger.info("⏱️  combine_frames took %.3f seconds", time.perf_counter() - start_time)
-
-            # Identify and standardize epoch time column
-            epoch_candidates = [
-                column for column in combined.columns if column.endswith("__EpochTime")
-            ]
-            epoch_column = None
-            if "Energy__EpochTime" in combined.columns:
-                epoch_column = "Energy__EpochTime"
-            elif epoch_candidates:
-                epoch_column = epoch_candidates[0]
-
-            if epoch_column and "EpochTime" not in combined.columns:
-                combined = combined.with_columns(
-                    pl.col(epoch_column).cast(pl.Int64).alias("EpochTime")
-                )
-
-            # Compute derived metrics and energy profile
-            logger.info("Computing task derivatives...")
-            start_time = time.perf_counter()
-            combined = add_task_derivatives(combined)
-            logger.info("⏱️  add_task_derivatives took %.3f seconds", time.perf_counter() - start_time)
-
-            logger.info("Computing energy profile...")
-            start_time = time.perf_counter()
-            combined, metrics = compute_energy_profile(
-                combined, job_id, group_name, logger=logger
-            )
-            logger.info("⏱️  compute_energy_profile took %.3f seconds", time.perf_counter() - start_time)
-
-            # Integrate pricing data if enabled
-            price_df = None
-            active_epoch_column = (
-                "EpochTime" if "EpochTime" in combined.columns else epoch_column
-            )
-            if config.fetch_price and active_epoch_column:
-                logger.info("Integrating price data...")
+                # Merge all frames into single time-aligned DataFrame
+                logger.info("Combining %d frames...", len(frames))
                 start_time = time.perf_counter()
-                combined, price_df = integrate_price_data(
-                    combined,
-                    active_epoch_column,
-                    filter_id=config.price.filter_id,
-                    region=config.price.region,
-                    resolution=config.price.resolution,
-                    logger=logger,
+                combined = combine_frames(frames)
+                logger.info("⏱️  combine_frames took %.3f seconds", time.perf_counter() - start_time)
+
+                # Identify and standardize epoch time column
+                epoch_candidates = [
+                    column for column in combined.columns if column.endswith("__EpochTime")
+                ]
+                epoch_column = None
+                if "Energy__EpochTime" in combined.columns:
+                    epoch_column = "Energy__EpochTime"
+                elif epoch_candidates:
+                    epoch_column = epoch_candidates[0]
+
+                if epoch_column and "EpochTime" not in combined.columns:
+                    combined = combined.with_columns(
+                        pl.col(epoch_column).cast(pl.Int64).alias("EpochTime")
+                    )
+
+                # Compute derived metrics and energy profile
+                logger.info("Computing task derivatives...")
+                start_time = time.perf_counter()
+                combined = add_task_derivatives(combined)
+                logger.info("⏱️  add_task_derivatives took %.3f seconds", time.perf_counter() - start_time)
+
+                logger.info("Computing energy profile...")
+                start_time = time.perf_counter()
+                combined, metrics = compute_energy_profile(
+                    combined, job_id, group_name, logger=logger
                 )
-                logger.info("⏱️  integrate_price_data took %.3f seconds", time.perf_counter() - start_time)
+                logger.info("⏱️  compute_energy_profile took %.3f seconds", time.perf_counter() - start_time)
 
-            elif config.fetch_price and not active_epoch_column:
-                logger.warning(
-                    "Skipping price integration for job=%s group=%s: no epoch column.",
-                    job_id,
-                    group_name,
+                # Integrate pricing data if enabled
+                price_df = None
+                active_epoch_column = (
+                    "EpochTime" if "EpochTime" in combined.columns else epoch_column
                 )
+                if config.fetch_price and active_epoch_column:
+                    logger.info("Integrating price data...")
+                    start_time = time.perf_counter()
+                    combined, price_df = integrate_price_data(
+                        combined,
+                        active_epoch_column,
+                        filter_id=config.price.filter_id,
+                        region=config.price.region,
+                        resolution=config.price.resolution,
+                        logger=logger,
+                    )
+                    logger.info("⏱️  integrate_price_data took %.3f seconds", time.perf_counter() - start_time)
 
-            # Add cast for every column
-            logger.info("Casting columns to optimized types...")
-            combined = cast_all_columns(combined, logger=logger)
+                elif config.fetch_price and not active_epoch_column:
+                    logger.warning(
+                        "Skipping price integration for job=%s group=%s: no epoch column.",
+                        job_id,
+                        group_name,
+                    )
 
-            # Write final combined data and statistics
-            return combined
+                # Add cast for every column
+                logger.info("Casting columns to optimized types...")
+                combined = cast_all_columns(combined, logger=logger)
+
+                # Write final combined data and statistics
+                return combined
+    except OSError as exc:
+        try:
+            size = file_path.stat().st_size
+        except OSError:
+            size = -1
+        raise HDF5OpenError(
+            f"Failed to open HDF5 file {file_path} (size={size} bytes). "
+            "The file appears corrupted or truncated; re-download or remove it before retrying."
+        ) from exc
 
 
 
@@ -524,7 +569,6 @@ if __name__ ==  "__main__":
 
     logger.info("Initializing DuckDB connection...")
     db_init_start = time.perf_counter()
-    i = 0
     con = duckdb.connect()
     logger.info("⏱️  DuckDB connection created in %.3f seconds", time.perf_counter() - db_init_start)
 
@@ -545,26 +589,48 @@ if __name__ ==  "__main__":
         logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_path.name)
         file_start = time.perf_counter()
 
-        dataframe = h5_to_dataframe(file_path, config=config, logger=logger)
+        if not validate_h5_file(file_path, logger=logger):
+            continue
+
+        try:
+            dataframe = h5_to_dataframe(file_path, config=config, logger=logger)
+        except HDF5OpenError as exc:
+            logger.error("Skipping %s due to unreadable HDF5: %s", file_path, exc)
+            continue
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Skipping %s due to unexpected processing error: %s", file_path, exc)
+            continue
+
+        if dataframe is None or dataframe.is_empty():
+            logger.error("Skipping %s: no usable data produced", file_path)
+            continue
 
         logger.info("⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start)
 
-        logger.info("Registering dataframe in DuckDB...")
-        register_start = time.perf_counter()
-        con.register(f"dataframe_{i}", dataframe)
-        logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
+        table_suffix = sanitize_parts([file_path.stem])
+        table_name = f"job_{table_suffix}"
+        df_name = f"dataframe_{table_suffix}"
+        logger.info("Using PostgreSQL table name: %s", table_name)
 
-        logger.info("Dropping existing PostgreSQL table if present...")
-        drop_start = time.perf_counter()
-        con.execute(f"DROP TABLE IF EXISTS pg.public.my_table_{i};")
-        logger.info("⏱️  DROP TABLE took %.3f seconds", time.perf_counter() - drop_start)
+        try:
+            logger.info("Registering dataframe in DuckDB...")
+            register_start = time.perf_counter()
+            con.register(df_name, dataframe)
+            logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
 
-        logger.info("Creating PostgreSQL table from dataframe...")
-        create_start = time.perf_counter()
-        con.execute(f"CREATE TABLE pg.public.my_table_{i} AS SELECT * FROM dataframe_{i};")
-        logger.info("⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start)
+            logger.info("Dropping existing PostgreSQL table if present...")
+            drop_start = time.perf_counter()
+            con.execute(f"DROP TABLE IF EXISTS pg.public.{table_name};")
+            logger.info("⏱️  DROP TABLE took %.3f seconds", time.perf_counter() - drop_start)
 
-        i = i + 1
+            logger.info("Creating PostgreSQL table from dataframe...")
+            create_start = time.perf_counter()
+            con.execute(f"CREATE TABLE pg.public.{table_name} AS SELECT * FROM {df_name};")
+            logger.info("⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to materialize table %s: %s", table_name, exc)
+            continue
+
         logger.info("⏱️  Total file processing took %.3f seconds", time.perf_counter() - file_start)
 
     logger.info("⏱️  Step 3 (all files) took %.3f seconds", time.perf_counter() - step3_start)
