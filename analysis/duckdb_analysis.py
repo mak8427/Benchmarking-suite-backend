@@ -107,6 +107,7 @@ def validate_h5_file(file_path: Path, *, logger) -> bool:
 
     return True
 
+
 def timing_decorator(func):
     """Decorator to measure and log function execution time."""
     @wraps(func)
@@ -273,17 +274,21 @@ def cast_all_columns(df: pl.DataFrame, *, logger=None) -> pl.DataFrame:
 
 
 @timing_decorator
-def h5_to_dataframe(file_path: Path, config: PipelineConfig, *, logger) -> pl.dataframe.frame.DataFrame:
+def h5_to_dataframe(
+    file_path: Path, config: PipelineConfig, *, logger, display_name: str | None = None
+) -> pl.dataframe.frame.DataFrame:
     """Process a single HDF5 file and returns a Polars Df
 
     Args:
         file_path: Path to the HDF5 file being processed.
+        display_name: Friendly identifier for logging (defaults to filename).
         config: Pipeline configuration and output directories.
         logger: Logger used for status updates.
     """
-    # Extract job identifier from filename
-    job_id = file_path.stem.split("_")[0] if "_" in file_path.stem else file_path.stem
-    logger.info("Processing %s", file_path.name)
+    file_label = display_name or file_path.name
+    job_id_source = file_label if display_name else file_path.stem
+    job_id = job_id_source.split("_")[0] if "_" in job_id_source else job_id_source
+    logger.info("Processing %s", file_label)
 
     try:
         with h5py.File(file_path, "r") as h5_file:
@@ -306,30 +311,30 @@ def h5_to_dataframe(file_path: Path, config: PipelineConfig, *, logger) -> pl.da
                         logger.exception(
                             "Skipping dataset %s in %s due to error: %s",
                             "/".join(dataset_path_parts),
-                            file_path.name,
+                            file_label,
                             exc,
                         )
                         continue
 
-                    # Skip empty datasets
-                    if df.is_empty():
+                # Skip empty datasets
+                if df.is_empty():
+                    logger.warning(
+                        "Data missing for %s in %s: dataset empty",
+                        "/".join(dataset_path_parts),
+                        file_label,
+                    )
+                    continue
+
+                # Validate NodePower data (skip if all zeros)
+                if "NodePower" in df.columns:
+                    node_power = df["NodePower"].fill_null(0)
+                    if node_power.sum() == 0:
                         logger.warning(
-                            "Data missing for %s in %s: dataset empty",
+                            "Data missing for %s in %s: NodePower contains only zeros",
                             "/".join(dataset_path_parts),
-                            file_path.name,
+                            file_label,
                         )
                         continue
-
-                    # Validate NodePower data (skip if all zeros)
-                    if "NodePower" in df.columns:
-                        node_power = df["NodePower"].fill_null(0)
-                        if node_power.sum() == 0:
-                            logger.warning(
-                                "Data missing for %s in %s: NodePower contains only zeros",
-                                "/".join(dataset_path_parts),
-                                file_path.name,
-                            )
-                            continue
 
                     # Ensure ElapsedTime column exists and normalize it
                     if "ElapsedTime" not in df.columns:
@@ -349,7 +354,7 @@ def h5_to_dataframe(file_path: Path, config: PipelineConfig, *, logger) -> pl.da
                     logger.warning(
                         "No usable datasets for %s in %s",
                         group_name,
-                        file_path.name,
+                        file_label,
                     )
                     continue
 
@@ -549,15 +554,15 @@ if __name__ ==  "__main__":
     local_files = collect_h5_files(config)
     remote_files = [] if not os.getenv("MINIO_SYNC") else minio_files
 
-    h5_files = []
+    h5_files: List[Tuple[str, Path]] = []
     if local_files:
-        h5_files.extend(local_files)
+        h5_files.extend([(file_path.stem, file_path) for file_path in local_files])
     for object_name in remote_files:
         path = get_minio_object(minio_settings["bucket"], object_name)
-        h5_files.append(path)
+        h5_files.append((Path(object_name).stem, path))
     logger.info("⏱️  File discovery took %.3f seconds", time.perf_counter() - step_start)
 
-    print(f"h5_files: {h5_files}")
+    print(f"h5_files: {[name for name, _ in h5_files]}")
     if not h5_files:
         logger.warning("No .h5 files found in %s. Nothing to process.", config.source_dir)
         raise "no files"
@@ -584,30 +589,30 @@ if __name__ ==  "__main__":
     con.execute(f"ATTACH '{conn_str}' AS pg (TYPE postgres);")
     logger.info("⏱️  PostgreSQL attachment took %.3f seconds", time.perf_counter() - attach_start)
 
-    for idx, file_path in enumerate(h5_files, 1):
+    for idx, (file_label, file_path) in enumerate(h5_files, 1):
         logger.info("=" * 60)
-        logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_path.name)
+        logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_label)
         file_start = time.perf_counter()
 
         if not validate_h5_file(file_path, logger=logger):
             continue
 
         try:
-            dataframe = h5_to_dataframe(file_path, config=config, logger=logger)
+            dataframe = h5_to_dataframe(file_path, config=config, logger=logger, display_name=file_label)
         except HDF5OpenError as exc:
-            logger.error("Skipping %s due to unreadable HDF5: %s", file_path, exc)
+            logger.error("Skipping %s due to unreadable HDF5: %s", file_label, exc)
             continue
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Skipping %s due to unexpected processing error: %s", file_path, exc)
+            logger.exception("Skipping %s due to unexpected processing error: %s", file_label, exc)
             continue
 
         if dataframe is None or dataframe.is_empty():
-            logger.error("Skipping %s: no usable data produced", file_path)
+            logger.error("Skipping %s: no usable data produced", file_label)
             continue
 
         logger.info("⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start)
 
-        table_suffix = sanitize_parts([file_path.stem])
+        table_suffix = sanitize_parts([file_label])
         table_name = f"job_{table_suffix}"
         df_name = f"dataframe_{table_suffix}"
         logger.info("Using PostgreSQL table name: %s", table_name)
