@@ -137,36 +137,71 @@ def compute_energy_profile(
         )
         return df, None
 
-    node_power_columns = [col for col in df.columns if col.endswith("__NodePower")]
-    if not node_power_columns:
+    node_power_columns = [
+        col
+        for col in df.columns
+        if col == "NodePower" or col.endswith("__NodePower") or col.endswith("__CurrPower") or col == "CurrPower"
+    ]
+    energy_columns = [
+        col for col in df.columns if col == "Energy" or col.endswith("__Energy")
+    ]
+
+    power_column = node_power_columns[0] if node_power_columns else None
+    energy_column = energy_columns[0] if energy_columns else None
+
+    if not power_column and not energy_column:
         logger.warning(
-            "No NodePower column found for job=%s group=%s; skipping energy metrics.",
+            "No power or energy column found for job=%s group=%s; skipping energy metrics.",
             job_id,
             group_name,
         )
         return df, None
 
-    node_power_column = node_power_columns[0]
-    df = df.with_columns(
-        [
-            pl.col("ElapsedTime").cast(pl.Float64),
-            pl.col(node_power_column).cast(pl.Float64).alias("NodePower"),
-        ]
-    )
-    df = df.with_columns(
-        pl.col("ElapsedTime").diff().fill_null(0.0).alias("ElapsedTime_Diff")
-    )
-    df = df.with_columns(
-        (pl.col("ElapsedTime_Diff") * pl.col("NodePower")).alias("Energy_Increment_J")
-    )
-    df = df.with_columns(
-        pl.col("Energy_Increment_J").cum_sum().alias("Energy_used_J")
-    )
+    df = df.with_columns(pl.col("ElapsedTime").cast(pl.Float64))
+
+    if power_column:
+        logger.info(
+            "Energy profile for job=%s group=%s using power column %s",
+            job_id,
+            group_name,
+            power_column,
+        )
+        df = df.with_columns(pl.col(power_column).cast(pl.Float64).alias("NodePower"))
+        df = df.with_columns(
+            pl.col("ElapsedTime").diff().fill_null(0.0).alias("ElapsedTime_Diff")
+        )
+        df = df.with_columns(
+            (pl.col("ElapsedTime_Diff") * pl.col("NodePower")).alias("Energy_Increment_J")
+        )
+        df = df.with_columns(
+            pl.col("Energy_Increment_J").cum_sum().alias("Energy_used_J")
+        )
+    else:
+        # Use cumulative energy directly when power is missing
+        logger.info(
+            "Energy profile for job=%s group=%s using cumulative energy column %s (power missing)",
+            job_id,
+            group_name,
+            energy_column,
+        )
+        df = df.with_columns(
+            pl.col(energy_column).cast(pl.Float64).alias("Energy_used_J")
+        )
+        df = df.with_columns(
+            pl.col("Energy_used_J").diff().fill_null(0.0).alias("Energy_Increment_J")
+        )
+        df = df.with_columns(
+            pl.when(pl.col("ElapsedTime").diff() > 0)
+            .then(pl.col("Energy_Increment_J") / pl.col("ElapsedTime").diff())
+            .otherwise(None)
+            .alias("NodePower")
+        )
 
     ets = df.select(pl.col("Energy_used_J").max()).item()
     tts = df.select(pl.col("ElapsedTime").max()).item()
     peak_row = (
         df.select(["NodePower", "ElapsedTime"])
+        .drop_nulls("NodePower")
         .sort("NodePower", descending=True)
         .head(1)
     )
@@ -186,6 +221,18 @@ def compute_energy_profile(
 
     appliance_name, appliance_amount, appliance_unit = describe_energy_use(
         ets, return_tuple=True
+    )
+
+    logger.info(
+        "Energy summary for job=%s group=%s: energy_to_solution_j=%.2f, time_to_solution_s=%.2f, "
+        "avg_power_w=%.2f, peak_power_w=%.2f at t=%.2f",
+        job_id,
+        group_name,
+        ets,
+        tts,
+        avg_power,
+        peak_power,
+        peak_time,
     )
 
     metrics = {

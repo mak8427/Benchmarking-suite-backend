@@ -218,7 +218,23 @@ def cast_all_columns(df: pl.DataFrame, *, logger=None) -> pl.DataFrame:
                 .cast(pl.Float32)
                 .alias(column)
             )
+        elif column == "CurrPower" or column.endswith("__CurrPower"):
+            cast_exprs.append(
+                pl.when(pl.col(column).is_finite() & pl.col(column).is_between(0, 10000))
+                .then(pl.col(column))
+                .otherwise(None)
+                .cast(pl.Float32)
+                .alias(column)
+            )
         elif column in ("Energy_Increment_J", "Energy_used_J"):
+            cast_exprs.append(
+                pl.when(pl.col(column).is_finite() & (pl.col(column) >= 0))
+                .then(pl.col(column))
+                .otherwise(None)
+                .cast(pl.Float32)
+                .alias(column)
+            )
+        elif column == "Energy" or column.endswith("__Energy"):
             cast_exprs.append(
                 pl.when(pl.col(column).is_finite() & (pl.col(column) >= 0))
                 .then(pl.col(column))
@@ -374,65 +390,71 @@ def h5_to_dataframe(
                 combined = combine_frames(frames)
                 logger.info("⏱️  combine_frames took %.3f seconds", time.perf_counter() - start_time)
 
-                # Identify and standardize epoch time column
-                epoch_candidates = [
-                    column for column in combined.columns if column.endswith("__EpochTime")
-                ]
-                epoch_column = None
-                if "Energy__EpochTime" in combined.columns:
-                    epoch_column = "Energy__EpochTime"
-                elif epoch_candidates:
-                    epoch_column = epoch_candidates[0]
+            # Identify and standardize epoch time column
+            epoch_candidates = [
+                column for column in combined.columns if column.endswith("__EpochTime")
+            ]
+            epoch_column = None
+            if "Energy__EpochTime" in combined.columns:
+                epoch_column = "Energy__EpochTime"
+            elif epoch_candidates:
+                epoch_column = epoch_candidates[0]
 
-                if epoch_column and "EpochTime" not in combined.columns:
-                    combined = combined.with_columns(
-                        pl.col(epoch_column).cast(pl.Int64).alias("EpochTime")
-                    )
-
-                # Compute derived metrics and energy profile
-                logger.info("Computing task derivatives...")
-                start_time = time.perf_counter()
-                combined = add_task_derivatives(combined)
-                logger.info("⏱️  add_task_derivatives took %.3f seconds", time.perf_counter() - start_time)
-
-                logger.info("Computing energy profile...")
-                start_time = time.perf_counter()
-                combined, metrics = compute_energy_profile(
-                    combined, job_id, group_name, logger=logger
+            if epoch_column and "EpochTime" not in combined.columns:
+                combined = combined.with_columns(
+                    pl.col(epoch_column).cast(pl.Int64).alias("EpochTime")
                 )
-                logger.info("⏱️  compute_energy_profile took %.3f seconds", time.perf_counter() - start_time)
 
-                # Integrate pricing data if enabled
-                price_df = None
-                active_epoch_column = (
-                    "EpochTime" if "EpochTime" in combined.columns else epoch_column
+            # Compute derived metrics and energy profile
+            logger.info("Computing task derivatives...")
+            start_time = time.perf_counter()
+            combined = add_task_derivatives(combined)
+            logger.info("⏱️  add_task_derivatives took %.3f seconds", time.perf_counter() - start_time)
+
+            logger.info("Computing energy profile...")
+            start_time = time.perf_counter()
+            combined, metrics = compute_energy_profile(
+                combined, job_id, group_name, logger=logger
+            )
+            logger.info("⏱️  compute_energy_profile took %.3f seconds", time.perf_counter() - start_time)
+
+            # Integrate pricing data if enabled
+            price_df = None
+            active_epoch_column = (
+                "EpochTime" if "EpochTime" in combined.columns else epoch_column
+            )
+            if config.fetch_price and active_epoch_column:
+                logger.info("Integrating price data...")
+                start_time = time.perf_counter()
+                combined, price_df = integrate_price_data(
+                    combined,
+                    active_epoch_column,
+                    filter_id=config.price.filter_id,
+                    region=config.price.region,
+                    resolution=config.price.resolution,
+                    logger=logger,
                 )
-                if config.fetch_price and active_epoch_column:
-                    logger.info("Integrating price data...")
-                    start_time = time.perf_counter()
-                    combined, price_df = integrate_price_data(
-                        combined,
-                        active_epoch_column,
-                        filter_id=config.price.filter_id,
-                        region=config.price.region,
-                        resolution=config.price.resolution,
-                        logger=logger,
-                    )
-                    logger.info("⏱️  integrate_price_data took %.3f seconds", time.perf_counter() - start_time)
+                logger.info("⏱️  integrate_price_data took %.3f seconds", time.perf_counter() - start_time)
 
-                elif config.fetch_price and not active_epoch_column:
-                    logger.warning(
-                        "Skipping price integration for job=%s group=%s: no epoch column.",
-                        job_id,
-                        group_name,
-                    )
+            elif config.fetch_price and not active_epoch_column:
+                logger.warning(
+                    "Skipping price integration for job=%s group=%s: no epoch column.",
+                    job_id,
+                    group_name,
+                )
 
-                # Add cast for every column
-                logger.info("Casting columns to optimized types...")
-                combined = cast_all_columns(combined, logger=logger)
+            # Add cast for every column
+            logger.info("Casting columns to optimized types...")
+            combined = cast_all_columns(combined, logger=logger)
 
-                # Write final combined data and statistics
-                return combined
+            # Write final combined data and statistics
+            logger.info(
+                "Completed %s: rows=%d, cols=%d",
+                file_label,
+                combined.height,
+                combined.width,
+            )
+            return combined
     except OSError as exc:
         try:
             size = file_path.stat().st_size
