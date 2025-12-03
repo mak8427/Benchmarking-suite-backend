@@ -306,8 +306,9 @@ def h5_to_dataframe(
 
                 # Convert each dataset to polars DataFrame with validation
                 frames: List[Tuple[str, pl.DataFrame]] = []
-                group_counts = {"empty": 0, "zero_power": 0, "errors": 0}
+                group_counts = {"empty": 0, "zero_power": 0, "errors": 0, "total": 0}
                 for dataset_path_parts, dataset in datasets:
+                    group_counts["total"] += 1
                     try:
                         df = dataset_to_polars(dataset)
                     except Exception as exc:  # noqa: BLE001
@@ -320,32 +321,31 @@ def h5_to_dataframe(
                         )
                         continue
 
-                # Skip empty datasets
-                if df.is_empty():
-                    group_counts["empty"] += 1
-                    logger.warning(
-                        "Data missing for %s in %s: dataset empty",
-                        "/".join(dataset_path_parts),
-                        file_label,
-                    )
-                    continue
-
-                # Validate NodePower data (skip if all zeros)
-                if "NodePower" in df.columns:
-                    node_power = df["NodePower"].fill_null(0)
-                    if node_power.sum() == 0:
-                        group_counts["zero_power"] += 1
+                    # Skip empty datasets
+                    if df.is_empty():
+                        group_counts["empty"] += 1
                         logger.warning(
-                            "Data missing for %s in %s: NodePower contains only zeros",
+                            "Data missing for %s in %s: dataset empty",
                             "/".join(dataset_path_parts),
                             file_label,
                         )
                         continue
 
+                    # Validate NodePower data (skip if all zeros)
+                    if "NodePower" in df.columns:
+                        node_power = df["NodePower"].fill_null(0)
+                        if node_power.sum() == 0:
+                            group_counts["zero_power"] += 1
+                            logger.warning(
+                                "Data missing for %s in %s: NodePower contains only zeros",
+                                "/".join(dataset_path_parts),
+                                file_label,
+                            )
+                            continue
+
                     # Ensure ElapsedTime column exists and normalize it
                     if "ElapsedTime" not in df.columns:
                         df = df.with_row_index("ElapsedTime")
-
 
                     df = df.sort("ElapsedTime").with_columns(
                         pl.col("ElapsedTime").cast(pl.UInt64)
@@ -354,17 +354,17 @@ def h5_to_dataframe(
                     prefix = dataset_prefix(dataset_path_parts)
                     frames.append((prefix, df))
 
-
                 # Skip group if no valid datasets found
                 if not frames:
                     file_warnings.append(group_counts)
                     logger.warning(
-                        "No usable datasets for %s in %s (empty=%d, zero_power=%d, errors=%d)",
+                        "No usable datasets for %s in %s (empty=%d, zero_power=%d, errors=%d, total=%d)",
                         group_name,
                         file_label,
                         group_counts["empty"],
                         group_counts["zero_power"],
                         group_counts["errors"],
+                        group_counts["total"],
                     )
                     continue
 
@@ -447,13 +447,15 @@ def h5_to_dataframe(
             "empty": sum(entry["empty"] for entry in file_warnings),
             "zero_power": sum(entry["zero_power"] for entry in file_warnings),
             "errors": sum(entry["errors"] for entry in file_warnings),
+            "total": sum(entry.get("total", 0) for entry in file_warnings),
         }
         logger.error(
-            "No usable data produced for %s (empty datasets=%d, zero-power datasets=%d, loader errors=%d)",
+            "No usable data produced for %s (empty datasets=%d, zero-power datasets=%d, loader errors=%d, total datasets=%d)",
             file_label,
             totals["empty"],
             totals["zero_power"],
             totals["errors"],
+            totals["total"],
         )
     return None
 
