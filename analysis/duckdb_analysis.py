@@ -290,6 +290,8 @@ def h5_to_dataframe(
     job_id = job_id_source.split("_")[0] if "_" in job_id_source else job_id_source
     logger.info("Processing %s", file_label)
 
+    file_warnings: List[dict[str, int]] = []
+
     try:
         with h5py.File(file_path, "r") as h5_file:
             # Process each top-level group in the HDF5 file
@@ -304,10 +306,12 @@ def h5_to_dataframe(
 
                 # Convert each dataset to polars DataFrame with validation
                 frames: List[Tuple[str, pl.DataFrame]] = []
+                group_counts = {"empty": 0, "zero_power": 0, "errors": 0}
                 for dataset_path_parts, dataset in datasets:
                     try:
                         df = dataset_to_polars(dataset)
                     except Exception as exc:  # noqa: BLE001
+                        group_counts["errors"] += 1
                         logger.exception(
                             "Skipping dataset %s in %s due to error: %s",
                             "/".join(dataset_path_parts),
@@ -318,6 +322,7 @@ def h5_to_dataframe(
 
                 # Skip empty datasets
                 if df.is_empty():
+                    group_counts["empty"] += 1
                     logger.warning(
                         "Data missing for %s in %s: dataset empty",
                         "/".join(dataset_path_parts),
@@ -329,6 +334,7 @@ def h5_to_dataframe(
                 if "NodePower" in df.columns:
                     node_power = df["NodePower"].fill_null(0)
                     if node_power.sum() == 0:
+                        group_counts["zero_power"] += 1
                         logger.warning(
                             "Data missing for %s in %s: NodePower contains only zeros",
                             "/".join(dataset_path_parts),
@@ -351,10 +357,14 @@ def h5_to_dataframe(
 
                 # Skip group if no valid datasets found
                 if not frames:
+                    file_warnings.append(group_counts)
                     logger.warning(
-                        "No usable datasets for %s in %s",
+                        "No usable datasets for %s in %s (empty=%d, zero_power=%d, errors=%d)",
                         group_name,
                         file_label,
+                        group_counts["empty"],
+                        group_counts["zero_power"],
+                        group_counts["errors"],
                     )
                     continue
 
@@ -432,6 +442,20 @@ def h5_to_dataframe(
             f"Failed to open HDF5 file {file_path} (size={size} bytes). "
             "The file appears corrupted or truncated; re-download or remove it before retrying."
         ) from exc
+    if file_warnings:
+        totals = {
+            "empty": sum(entry["empty"] for entry in file_warnings),
+            "zero_power": sum(entry["zero_power"] for entry in file_warnings),
+            "errors": sum(entry["errors"] for entry in file_warnings),
+        }
+        logger.error(
+            "No usable data produced for %s (empty datasets=%d, zero-power datasets=%d, loader errors=%d)",
+            file_label,
+            totals["empty"],
+            totals["zero_power"],
+            totals["errors"],
+        )
+    return None
 
 
 
