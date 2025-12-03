@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -74,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="quarterhour",
         help="SMARD resolution string (default: quarterhour).",
     )
+    parser.add_argument(
+        "--allow-missing-source",
+        action="store_true",
+        help="Skip local source directory validation (useful for MinIO/S3 inputs).",
+    )
     return parser
 
 
@@ -99,6 +105,7 @@ class PipelineConfig:
     log_file: Path
     fetch_price: bool
     price: PriceSettings
+    allow_missing_source: bool
 
     @classmethod
     def from_args(cls, args: argparse.Namespace, base_dir: Path) -> "PipelineConfig":
@@ -116,6 +123,7 @@ class PipelineConfig:
             price_dir=resolve(args.price_dir),
             log_file=resolve(args.log_file),
             fetch_price=args.fetch_price,
+            allow_missing_source=args.allow_missing_source,
             price=PriceSettings(
                 filter_id=args.price_filter_id,
                 region=args.price_region,
@@ -136,5 +144,7 @@ def ensure_directories(config: PipelineConfig) -> None:
 
 def validate_source(config: PipelineConfig) -> None:
     """Raise if the configured source directory does not exist."""
+    if config.allow_missing_source or os.getenv("MINIO_SYNC"):
+        return
     if not config.source_dir.exists():
         raise FileNotFoundError(f"Source directory not found: {config.source_dir}")
