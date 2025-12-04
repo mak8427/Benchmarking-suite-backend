@@ -599,7 +599,7 @@ if __name__ ==  "__main__":
 
     logger.info("Step 2/4: discovering input HDF5 files under %s.", config.source_dir)
     step_start = time.perf_counter()
-    local_files = collect_h5_files(config)
+    local_files = collect_h5_files(config, keep_batch_files=False)
     remote_files = [] if not os.getenv("MINIO_SYNC") else minio_files
 
     h5_files: List[Tuple[str, Path]] = []

@@ -71,7 +71,7 @@ def combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
         return combined
 
 
-def collect_h5_files(config: PipelineConfig) -> List[Path]:
+def collect_h5_files(config: PipelineConfig, keep_batch_files: bool) -> List[Path]:
     """Return a sorted list of HDF5 files under the configured source path.
 
     Args:
@@ -80,7 +80,16 @@ def collect_h5_files(config: PipelineConfig) -> List[Path]:
     Returns:
         Sorted list of HDF5 file paths.
     """
-    return sorted(config.source_dir.glob("*.h5"))
+    file_paths = sorted(config.source_dir.rglob("*.h5"))
+    if keep_batch_files:
+        return file_paths
+    else:
+        return [
+            path
+            for path in file_paths
+            if not path.stem.endswith("_batch")
+        ]
+
 
 
 def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
