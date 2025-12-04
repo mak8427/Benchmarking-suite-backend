@@ -87,7 +87,7 @@ def collect_h5_files(config: PipelineConfig, keep_batch_files: bool) -> List[Pat
         return [
             path
             for path in file_paths
-            if not path.stem.endswith("_batch")
+            if "_batch_" not in path.stem
         ]
 
 
