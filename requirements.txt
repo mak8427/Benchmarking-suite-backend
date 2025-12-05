@@ -4,3 +4,8 @@ passlib
 pydantic
 minio
 httpx
+duckdb
+h5py
+polars
+uvicorn
+numpy
