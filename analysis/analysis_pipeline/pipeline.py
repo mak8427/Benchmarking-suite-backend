@@ -79,16 +79,12 @@ def collect_h5_files(config: PipelineConfig, keep_batch_files: bool) -> List[Pat
 
     Returns:
         Sorted list of HDF5 file paths.
+        :param keep_batch_files: true to include files with 'batch' in their names.
     """
     file_paths = sorted(config.source_dir.rglob("*.h5"))
     if keep_batch_files:
         return file_paths
-    else:
-        return [
-            path
-            for path in file_paths
-            if "_batch_" not in path.stem
-        ]
+    return [path for path in file_paths if "batch" not in path.stem]
 
 
 
