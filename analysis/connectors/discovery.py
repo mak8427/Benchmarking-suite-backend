@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from minio import Minio
 
-from analysis_pipeline import collect_h5_files, PipelineConfig
+from pipeline_core import collect_h5_files, PipelineConfig
 from analysis.connectors.minio import download_minio_object, list_minio_objects
 
 

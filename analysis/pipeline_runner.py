@@ -1,3 +1,5 @@
+"""Entry point for running the DuckDB/Postgres analysis pipeline."""
+
 from __future__ import annotations
 
 import os
@@ -7,13 +9,14 @@ from typing import List, Tuple
 
 import duckdb
 from minio.error import S3Error
-from analysis.connectors.db import setup_duckdb_with_postgres
-from analysis.connectors.discovery import discover_h5_files
-from analysis.connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
-from analysis.h5_processing import HDF5OpenError, h5_to_dataframe
-from analysis.utils.common import validate_h5_file
-from analysis_pipeline import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
-from analysis_pipeline.data_loader import sanitize_parts
+
+from connectors.db import setup_duckdb_with_postgres
+from connectors.discovery import discover_h5_files
+from connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
+from processing.h5_processing import HDF5OpenError, h5_to_dataframe
+from utils.common import validate_h5_file
+from pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
+from pipeline_core.data_loader import sanitize_parts
 
 
 def process_file(
@@ -64,10 +67,7 @@ def process_file(
             )
             con.register(df_name, dataframe.to_pandas())
 
-        logger.info(
-            "⏱️  DataFrame registration took %.3f seconds",
-            time.perf_counter() - register_start,
-        )
+        logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
 
         logger.info("Dropping existing PostgreSQL table if present...")
         drop_start = time.perf_counter()

@@ -7,13 +7,13 @@ from typing import List, Tuple
 import h5py
 import polars as pl
 
-from analysis.utils.common import timing_decorator
-from analysis.casting import cast_all_columns
-from analysis_pipeline import PipelineConfig
-from analysis_pipeline.data_loader import dataset_prefix, dataset_to_polars, iter_datasets
-from analysis_pipeline.energy import add_task_derivatives, compute_energy_profile
-from analysis_pipeline.combiner import combine_frames
-from analysis_pipeline.pricing import integrate_price_data
+from utils.common import timing_decorator
+from processing.casting import cast_all_columns
+from pipeline_core import PipelineConfig
+from pipeline_core.data_loader import dataset_prefix, dataset_to_polars, iter_datasets
+from pipeline_core.energy import add_task_derivatives, compute_energy_profile
+from pipeline_core.combiner import combine_frames
+from pipeline_core.pricing import integrate_price_data
 
 
 class HDF5OpenError(RuntimeError):

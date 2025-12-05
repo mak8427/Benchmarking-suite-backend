@@ -11,8 +11,8 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from minio import Minio
 from minio.error import S3Error
 
-from analysis_pipeline import PipelineConfig, build_parser, configure_logging
-from analysis_pipeline.data_loader import sanitize_parts
+from pipeline_core import PipelineConfig, build_parser, configure_logging
+from pipeline_core.data_loader import sanitize_parts
 from analysis.h5_processing import HDF5OpenError, h5_to_dataframe
 from analysis.utils.common import validate_h5_file
 from connectors.minio import resolve_minio_settings
