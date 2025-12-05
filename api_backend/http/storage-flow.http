@@ -1,0 +1,70 @@
+@baseUrl = {{baseUrl}}
+@objectName = reports_demo.csv
+@uploadFile = {{projectRoot}}/tests/report.csv
+
+### Ensure tokens exist locally (set by auth.http)
+GET {{baseUrl}}/
+Accept: application/json
+
+> {% client.test("accessToken defined", function() {
+    client.assert(Boolean(client.global.get("accessToken")), "Run auth.http first to seed tokens");
+    client.assert(Boolean(client.global.get("refreshToken")), "Run auth.http first to seed tokens");
+    client.assert(Boolean(client.global.get("username")), "Run auth.http first to seed tokens");
+}); %}
+
+### Upload Bytes Via Presigned PUT
+POST {{baseUrl}}/storage/presign/upload?object_name={{objectName}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Received presigned upload URL", function() {
+    client.assert(response.status === 200);
+    client.assert(response.body.url);
+    const expectedKey = `${client.global.get("username")}/{{objectName}}`;
+    client.assert(response.body.key === expectedKey, `Unexpected key: ${response.body.key}`);
+    client.global.set("presignedPut", response.body.url);
+    client.global.set("storageKey", expectedKey);
+}); %}
+
+### PUT File To Presigned URL
+PUT {{presignedPut}}
+Content-Type: application/octet-stream
+
+< {{uploadFile}}
+
+> {% client.test("Upload PUT succeeded", function() {
+    client.assert(response.status === 200 || response.status === 204);
+}); %}
+
+### List Objects For Confirmation
+GET {{baseUrl}}/storage/list
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Uploaded object present in listing", function() {
+    client.assert(response.status === 200);
+    const objects = response.body.objects || [];
+    const key = client.global.get("storageKey");
+    client.assert(Boolean(key), "storageKey missing; run presign step first");
+    client.assert(objects.some(item => item.key === key), `Object ${key} not found in listing`);
+}); %}
+
+### Presign Download
+GET {{baseUrl}}/storage/presign/download?object_name={{objectName}}
+Authorization: Bearer {{accessToken}}
+Accept: application/json
+
+> {% client.test("Received presigned download URL", function() {
+    client.assert(response.status === 200);
+    client.assert(response.body.url);
+    client.global.set("presignedGet", response.body.url);
+}); %}
+
+### Download File From Presigned URL
+GET {{presignedGet}}
+Accept: application/octet-stream
+
+> {% client.test("Downloaded payload matches upload", function() {
+    client.assert(response.status === 200);
+    client.assert((response.body || "").length > 0);
+}); %}
