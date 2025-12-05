@@ -668,8 +668,20 @@ if __name__ ==  "__main__":
         try:
             logger.info("Registering dataframe in DuckDB...")
             register_start = time.perf_counter()
-            con.register(df_name, dataframe)
-            logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
+            try:
+                con.register(df_name, dataframe)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Registering via Arrow failed for %s, falling back to pandas: %s",
+                    file_label,
+                    exc,
+                )
+                con.register(df_name, dataframe.to_pandas())
+
+            logger.info(
+                "⏱️  DataFrame registration took %.3f seconds",
+                time.perf_counter() - register_start,
+            )
 
             logger.info("Dropping existing PostgreSQL table if present...")
             drop_start = time.perf_counter()
