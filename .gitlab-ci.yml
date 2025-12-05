@@ -39,4 +39,4 @@ pytest:
   <<: *setup
   script:
     - pip install pytest
-    - pytest tests
+    - pytest api_backend/tests
