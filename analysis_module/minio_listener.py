@@ -5,7 +5,12 @@ app = FastAPI()
 
 def launch_job(bucket: str, key: str):
     name = f"duckdb-{int(time.time())}"
-    subprocess.run(["kubectl","create","job",name,"--image=localhost/duckdb-analysis:latest"], check=True)
+    cmd = ["kubectl","create","job",name,"--image=localhost/duckdb-analysis:latest"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    print("kubectl rc:", r.returncode)
+    print("stdout:", r.stdout)
+    print("stderr:", r.stderr)
+
 
 @app.post("/minio")
 async def minio(req: Request, bg: BackgroundTasks):
