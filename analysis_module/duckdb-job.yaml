@@ -10,3 +10,4 @@ spec:
       containers:
         - name: duckdb
           image: localhost/duckdb-analysis:latest
+          imagePullPolicy: IfNotPresent
