@@ -3,9 +3,9 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY analysis_module /app/analysis_module
+COPY . .
 
-CMD ["python", "-u", "-m", "analysis_module.duckdb_analysis"]
+CMD ["python", "-m", "analysis.duckdb_analysis"]
