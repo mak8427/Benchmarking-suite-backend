@@ -9,5 +9,5 @@ spec:
       restartPolicy: Never
       containers:
         - name: duckdb
-          image: localhost/duckdb-analysis:latest
+          image: localhost/duckdb-analysis:<TAG>
           imagePullPolicy: IfNotPresent
