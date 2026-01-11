@@ -8,7 +8,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy only analysis code to keep the image smaller
-COPY analysis /app/analysis
+COPY analysis_module /app/analysis_module
 
-WORKDIR /app/analysis
+WORKDIR /app/analysis_module
 CMD ["python", "-u", "duckdb_analysis.py"]

@@ -29,6 +29,9 @@ This repo is split into two modules:
   ```bash
   uvicorn analysis_module.minio_listener:app --host 0.0.0.0 --port 8001
   ```
+- Event-driven flow (summary):
+  - MinIO bucket notification → listener filters `.h5` → download temp file → validate HDF5 → build Polars dataframe → write `pg.public.job_<h5-stem>` via DuckDB.
+  - Duplicate uploads of the same key overwrite the MinIO object and re-create the Postgres table.
 - Core packages:
   - `analysis_module/pipeline_core/` – config, loaders, energy/pricing, combiner, discovery.
   - `analysis_module/processing/` – HDF5 parsing and casting.
@@ -36,6 +39,7 @@ This repo is split into two modules:
   - `analysis_module/utils/` – shared helpers.
 - Key env vars: `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ENDPOINT`/`MINIO_ADMIN_ENDPOINT`, `MINIO_BUCKET`, `MINIO_OBJECT_PREFIX`, `MINIO_SECURE`, `MINIO_SYNC=1` (to pull remote files), `POSTGRES_HOST/PORT/DB/USER/PASSWORD`.
 - Tables are written to Postgres as `pg.public.job_<h5-stem>`.
+- More detail: `docs/PROJECT_OVERVIEW.md`.
 
 ## Docker
 - Analysis image: `analysis_module/Dockerfile` (runs `duckdb_analysis.py`).
