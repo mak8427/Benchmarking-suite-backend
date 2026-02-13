@@ -30,6 +30,8 @@ def _discover_base_url() -> str | None:
     for candidate in (
         Path("http-client.private.env.json"),
         Path("http-client.env.json"),
+        Path("api_backend/http-client.private.env.json"),
+        Path("api_backend/http-client.env.json"),
     ):
         if not candidate.exists():
             continue
@@ -216,6 +218,10 @@ def remote_client():
         >>> BASE_URL.startswith("http")
         True
     """
+    enabled = os.getenv("RUN_REMOTE_TESTS", "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        pytest.skip("Remote tests disabled. Set RUN_REMOTE_TESTS=1 to execute live endpoint checks.")
+
     session = httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=True)
     try:
         response = session.get("/")
