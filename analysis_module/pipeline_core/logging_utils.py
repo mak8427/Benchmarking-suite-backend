@@ -12,7 +12,21 @@ LOGGER_NAME = "analysis"
 
 
 def configure_logging(log_path: Path) -> logging.Logger:
-    """Initialise a dual file/stream logger writing to *log_path*."""
+    """Configure and return the shared analysis logger.
+
+    Args:
+        log_path (Path): Destination log file path.
+
+    Returns:
+        logging.Logger: Configured logger with file and stream handlers.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     logger = configure_logging(Path(tmp) / "analysis.log")
+        ...     logger.name
+        'analysis'
+    """
     logger = logging.getLogger(LOGGER_NAME)
     logger.setLevel(logging.INFO)
     logger.handlers.clear()

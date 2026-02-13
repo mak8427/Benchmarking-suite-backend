@@ -1,70 +1,111 @@
 # Benchmarking Suite Backend
 
-This repo is split into two modules:
+This repository contains two Python services:
 
-- **api_backend/** – External-facing FastAPI service for auth and MinIO-backed file operations.
-- **analysis_module/** – Batch and event-driven pipeline that ingests HDF5 data, computes energy metrics, and writes results to Postgres via DuckDB.
+- `api_backend/` - external FastAPI API for authentication and MinIO presign flows.
+- `analysis_module/` - batch + event-driven analysis pipeline for `.h5` job artifacts.
 
 ## Quickstart
 
-### API Backend
-- Entrypoint: `api_backend/main.py`
-- Run locally:
-  ```bash
-  uvicorn api_backend.main:app --reload --host 0.0.0.0 --port 8000
-  ```
-- Key env vars: `JWT_SECRET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_PUBLIC_ENDPOINT`, `MINIO_ADMIN_ENDPOINT`, `MINIO_BUCKET`, `MINIO_BUCKET_PREFIX`, `BUCKET_TOKEN_SECRET`.
-- Endpoints (examples):
-  - `POST /auth/register` / `POST /auth/password` / `POST /auth/refresh`
-  - `POST /storage/presign/upload`
-  - `GET /storage/presign/download`
-  - `GET /storage/list`
+Target Python 3.11+.
 
-### Analysis Module
-- Batch runner: `analysis_module/duckdb_analysis.py` → calls `pipeline_runner.run_pipeline()`.
-  ```bash
-  python analysis_module/duckdb_analysis.py
-  ```
-- Event listener: `analysis_module/minio_listener.py` (FastAPI webhook).
-  ```bash
-  uvicorn analysis_module.minio_listener:app --host 0.0.0.0 --port 8001
-  ```
-- Core packages:
-  - `analysis_module/pipeline_core/` – config, loaders, energy/pricing, combiner, discovery.
-  - `analysis_module/processing/` – HDF5 parsing and casting.
-  - `analysis_module/connectors/` – MinIO, DuckDB/Postgres, file discovery.
-  - `analysis_module/utils/` – shared helpers.
-- Key env vars: `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ENDPOINT`/`MINIO_ADMIN_ENDPOINT`, `MINIO_BUCKET`, `MINIO_OBJECT_PREFIX`, `MINIO_SECURE`, `MINIO_SYNC=1` (to pull remote files), `POSTGRES_HOST/PORT/DB/USER/PASSWORD`.
-- Tables are written to Postgres as `pg.public.job_<h5-stem>`.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Docker
-- Analysis image: `analysis_module/Dockerfile` (runs `duckdb_analysis.py`).
-  ```bash
-  podman build -f analysis_module/Dockerfile -t duckdb-analysis .
-  podman run --rm --network=host \
-    -e MINIO_ENDPOINT=host.containers.internal:9000 \
-    -e MINIO_ACCESS_KEY=... -e MINIO_SECRET_KEY=... \
-    -e MINIO_BUCKET=... -e MINIO_OBJECT_PREFIX=... \
-    -e POSTGRES_HOST=... -e POSTGRES_USER=... -e POSTGRES_PASSWORD=... \
-    duckdb-analysis
-  ```
-- API image: build from repo root (uses `api_backend/main.py`).
-  ```bash
-  podman build -t api-backend .
-  podman run --rm --network=host -e JWT_SECRET=... -e MINIO_ACCESS_KEY=... -e MINIO_SECRET_KEY=... api-backend
-  ```
+Set required secrets before running:
 
-## k3s suggestion
-- Keep two Deployments/Services: `api_backend` exposed via Ingress; `analysis_listener` as ClusterIP only.
-- MinIO bucket notifications target: `http://analysis-listener-svc.<ns>.svc.cluster.local:8001/minio-event`.
-- Secrets via k8s Secrets; non-sensitive defaults via ConfigMaps.
-- Optional CronJob to re-scan MinIO for missed files.
+```bash
+export JWT_SECRET='replace-me'
+export MINIO_ACCESS_KEY='...'
+export MINIO_SECRET_KEY='...'
+```
 
-## Testing
-- API tests under `api_backend/tests/`; run with `python -m pytest api_backend/tests`.
-- Add analysis tests under `analysis_module/tests/` (none present yet).
+## API Backend
 
-## Logging / artifacts
-- API logs to `process.log` + stdout.
-- Analysis logs to `analysis_module/analysis.log` (or stdout in containers).
-- Avoid committing credentials or generated artifacts (e.g., populated `users.txt`, raw MinIO data).
+Entrypoint: `api_backend/main.py`
+
+```bash
+uvicorn api_backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Primary endpoints:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /files/presign/upload`
+- `GET /files/presign/download`
+- `GET /files/list`
+- `GET /healthz`
+
+Compatibility endpoints remain available during transition:
+
+- `POST /auth/password`
+- `POST /storage/presign/upload`
+- `GET /storage/presign/download`
+- `GET /storage/list`
+
+## Analysis Module
+
+Batch runner:
+
+```bash
+python -m analysis_module.duckdb_analysis
+```
+
+Event listener:
+
+```bash
+uvicorn analysis_module.minio_listener:app --host 0.0.0.0 --port 8001
+```
+
+The listener accepts MinIO notifications on:
+
+- `POST /minio-event` (primary)
+- `POST /minio` (legacy)
+
+## Config Files
+
+- Analysis config: `analysis_module/pipeline_config.yml`
+- Load test config: `api_backend/performance_test/config.yml`
+
+Load test command:
+
+```bash
+python -m api_backend.performance_test.requests --config api_backend/performance_test/config.yml
+```
+
+Legacy positional invocation is still supported:
+
+```bash
+python -m api_backend.performance_test.requests http://localhost:8000/healthz 10000 200
+```
+
+## Tests and Checks
+
+Run API-focused tests:
+
+```bash
+pytest -q api_backend/tests/test_auth_endpoints.py api_backend/tests/test_storage_endpoints.py api_backend/tests/test_utils.py
+```
+
+Run doctests + module collection:
+
+```bash
+pytest --doctest-modules
+```
+
+Run pre-commit checks:
+
+```bash
+pre-commit run --all-files
+```
+
+## Security Notes
+
+- `JWT_SECRET` must be provided via environment variable.
+- Do not commit credentials, raw `.h5` input data, or generated logs.
+- Storage keys are server-generated and scoped to `user_id/<uuid>_<safe_name>`.

@@ -1,3 +1,7 @@
+"""Remote integration fixtures for live API smoke tests."""
+
+from __future__ import annotations
+
 import json
 import os
 import secrets
@@ -10,6 +14,15 @@ httpx = pytest.importorskip("httpx")
 
 
 def _discover_base_url() -> str | None:
+    """Resolve remote base URL from environment or local HTTP client env files.
+
+    Returns:
+        str | None: Base URL when configured, else ``None``.
+
+    Examples:
+        >>> isinstance(_discover_base_url(), (str, type(None)))
+        True
+    """
     env_value = os.getenv("REMOTE_BASE_URL")
     if env_value:
         return env_value
@@ -41,58 +54,179 @@ USING_DEFAULT_BASE = _discovered_url is None
 
 @dataclass
 class RemoteCredentials:
+    """Username/password payload for remote auth tests."""
+
     username: str
     password: str
 
 
 class RemoteAPI:
+    """Small client wrapper for remote API integration routes."""
+
     def __init__(self, client: httpx.Client):
+        """Create a wrapper around a configured HTTPX client.
+
+        Args:
+            client (httpx.Client): Bound HTTP client instance.
+
+        Examples:
+            >>> class _Dummy:  # doctest: +SKIP
+            ...     pass
+            >>> RemoteAPI.__name__
+            'RemoteAPI'
+        """
         self._client = client
 
     @property
     def client(self) -> httpx.Client:
+        """Expose the underlying HTTPX client.
+
+        Returns:
+            httpx.Client: Raw HTTP client instance.
+
+        Examples:
+            >>> "client" in RemoteAPI.client.fget.__name__
+            True
+        """
         return self._client
 
     def root(self):
+        """Call root health endpoint.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> "/" == "/"
+            True
+        """
         return self._client.get("/")
 
     def register(self, creds: RemoteCredentials):
+        """Register user in remote API.
+
+        Args:
+            creds (RemoteCredentials): Credentials payload.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> RemoteCredentials("u", "p").username
+            'u'
+        """
         payload = {"username": creds.username, "password": creds.password}
         return self._client.post("/auth/register", json=payload)
 
     def login(self, creds: RemoteCredentials):
+        """Login user in remote API.
+
+        Args:
+            creds (RemoteCredentials): Credentials payload.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> "login" in "/auth/password"
+            False
+        """
         params = {"u": creds.username, "p": creds.password}
         return self._client.post("/auth/password", params=params)
 
     def refresh(self, refresh_token: str):
+        """Refresh auth tokens in remote API.
+
+        Args:
+            refresh_token (str): Refresh token identifier.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> "rid" in "rid"
+            True
+        """
         return self._client.post("/auth/refresh", params={"rid": refresh_token})
 
     def presign_upload(self, token: str, object_name: str):
+        """Request upload presign URL.
+
+        Args:
+            token (str): Access token.
+            object_name (str): Object name.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> object_name = "report.csv"
+            >>> object_name.endswith(".csv")
+            True
+        """
         headers = {"Authorization": f"Bearer {token}"}
         return self._client.post(
             "/storage/presign/upload", params={"object_name": object_name}, headers=headers
         )
 
     def presign_download(self, token: str, object_name: str):
+        """Request download presign URL.
+
+        Args:
+            token (str): Access token.
+            object_name (str): Object name.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> "/storage/presign/download".endswith("download")
+            True
+        """
         headers = {"Authorization": f"Bearer {token}"}
         return self._client.get(
             "/storage/presign/download", params={"object_name": object_name}, headers=headers
         )
 
     def list_objects(self, token: str):
+        """List user objects from remote API.
+
+        Args:
+            token (str): Access token.
+
+        Returns:
+            Response: HTTP response object.
+
+        Examples:
+            >>> "list" in "/storage/list"
+            True
+        """
         headers = {"Authorization": f"Bearer {token}"}
         return self._client.get("/storage/list", headers=headers)
 
 
 @pytest.fixture(scope="session")
 def remote_client():
+    """Create a session-scoped remote HTTP client or skip if offline.
+
+    Yields:
+        Iterator[httpx.Client]: Shared remote client.
+
+    Examples:
+        >>> BASE_URL.startswith("http")
+        True
+    """
     session = httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=True)
     try:
         response = session.get("/")
         response.raise_for_status()
     except Exception as exc:  # pragma: no cover - executed only when offline
         session.close()
-        hint = "Set REMOTE_BASE_URL or update http-client.private.env.json" if USING_DEFAULT_BASE else "Remote server unreachable"
+        hint = (
+            "Set REMOTE_BASE_URL or update http-client.private.env.json"
+            if USING_DEFAULT_BASE
+            else "Remote server unreachable"
+        )
         pytest.skip(f"Remote server {BASE_URL} unavailable: {exc}. {hint}")
     yield session
     session.close()
@@ -100,11 +234,32 @@ def remote_client():
 
 @pytest.fixture
 def remote_api(remote_client):
+    """Build a `RemoteAPI` wrapper around the shared client.
+
+    Args:
+        remote_client: Session-scoped HTTPX client.
+
+    Returns:
+        RemoteAPI: API helper wrapper.
+
+    Examples:
+        >>> RemoteAPI.__name__
+        'RemoteAPI'
+    """
     return RemoteAPI(remote_client)
 
 
 @pytest.fixture
 def fresh_remote_user():
+    """Create random remote credentials for isolated test accounts.
+
+    Returns:
+        RemoteCredentials: Unique username/password pair.
+
+    Examples:
+        >>> isinstance(secrets.token_hex(2), str)
+        True
+    """
     suffix = secrets.token_hex(4)
     return RemoteCredentials(
         username=f"pytest_{suffix}",

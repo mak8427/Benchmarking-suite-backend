@@ -1,3 +1,5 @@
+"""DuckDB/Postgres connectivity helpers."""
+
 from __future__ import annotations
 
 import os
@@ -7,8 +9,19 @@ import duckdb
 
 
 def setup_duckdb_with_postgres(*, password: str, logger) -> duckdb.DuckDBPyConnection:
-    """Create DuckDB connection, install/load postgres extension, and attach Postgres."""
+    """Create DuckDB connection and attach Postgres.
 
+    Args:
+        password (str): Postgres password.
+        logger: Logger used for timing/status output.
+
+    Returns:
+        duckdb.DuckDBPyConnection: Attached DuckDB connection.
+
+    Examples:
+        >>> setup_duckdb_with_postgres.__name__
+        'setup_duckdb_with_postgres'
+    """
     logger.info("Initializing DuckDB connection...")
     db_init_start = time.perf_counter()
     con = duckdb.connect()

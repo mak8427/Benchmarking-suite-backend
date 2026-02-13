@@ -6,7 +6,20 @@ import polars as pl
 
 
 def add_task_derivatives(df: pl.DataFrame) -> pl.DataFrame:
-    """Append derived task columns such as RSS in megabytes and normalized CPU util."""
+    """Append derived task columns such as RSS MB and normalized CPU usage.
+
+    Args:
+        df (pl.DataFrame): Combined dataframe with raw task telemetry columns.
+
+    Returns:
+        pl.DataFrame: Dataframe with additional derived columns when available.
+
+    Examples:
+        >>> frame = pl.DataFrame({"Task__RSS": [1024.0], "Task__CPUUtilization": [16.0]})
+        >>> out = add_task_derivatives(frame)
+        >>> sorted(out.columns)
+        ['Task__CPUUtilization', 'Task__CPUUtilization_normalized', 'Task__RSS', 'Task__RSS_MB']
+    """
 
     derived_columns = []
     for column in df.columns:

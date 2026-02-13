@@ -16,7 +16,20 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 def determine_series_blocks(min_timestamp: int, max_timestamp: int, available: List[int]) -> List[int]:
-    """Select SMARD block start times that cover the required interval."""
+    """Select SMARD block start times that cover a target interval.
+
+    Args:
+        min_timestamp (int): Lower bound (inclusive), seconds since epoch.
+        max_timestamp (int): Upper bound (inclusive), seconds since epoch.
+        available (List[int]): Available SMARD block start timestamps.
+
+    Returns:
+        List[int]: Sorted block timestamps to fetch.
+
+    Examples:
+        >>> determine_series_blocks(15, 25, [0, 10, 20, 30, 40])
+        [10, 20]
+    """
 
     if not available:
         return []
@@ -47,7 +60,35 @@ def fetch_smard_prices(
     resolution: str,
     logger,
 ) -> Optional[pl.DataFrame]:
-    """Fetch SMARD price data covering ``epoch_times`` if possible."""
+    """Fetch SMARD price rows that span the provided epoch range.
+
+    Args:
+        epoch_times (pl.Series): Epoch-time values from telemetry rows.
+        filter_id (int): SMARD filter identifier.
+        region (str): SMARD region code.
+        resolution (str): SMARD resolution token.
+        logger: Logger used for progress/warning output.
+
+    Returns:
+        Optional[pl.DataFrame]: Price dataframe or ``None`` when unavailable.
+
+    Examples:
+        >>> import analysis_module.pipeline_core.pricing_fetch as mod
+        >>> class L:
+        ...     def warning(self, *args, **kwargs): pass
+        ...     def info(self, *args, **kwargs): pass
+        >>> old_requests = mod.requests
+        >>> mod.requests = None
+        >>> mod.fetch_smard_prices(
+        ...     pl.Series("EpochTime", [1, 2]),
+        ...     filter_id=4169,
+        ...     region="DE-LU",
+        ...     resolution="quarterhour",
+        ...     logger=L(),
+        ... ) is None
+        True
+        >>> mod.requests = old_requests
+    """
 
     if requests is None:
         logger.warning("requests package not available; skipping SMARD price fetch.")
@@ -78,6 +119,14 @@ def fetch_smard_prices(
     max_workers = max(1, min(int(os.getenv("SLURM_CPUS_ON_NODE", cpu_count)), len(block_list)))
 
     def fetch_block(ts: int) -> List[List[float]]:
+        """Fetch one SMARD JSON block and return its series rows.
+
+        Args:
+            ts (int): Block timestamp in epoch seconds.
+
+        Returns:
+            List[List[float]]: Raw ``series`` rows from SMARD response JSON.
+        """
         url = (
             f"https://www.smard.de/app/chart_data/{filter_id}/{region}/"
             f"{filter_id}_{region}_{resolution}_{ts * 1000}.json"

@@ -59,7 +59,7 @@ from fastapi import FastAPI, Request
 
 app = FastAPI()
 
-@app.post("/minio")
+@app.post("/minio-event")
 async def minio_event(req: Request):
     payload = await req.json()
     print("MinIO event:", payload)
@@ -92,7 +92,7 @@ This is Podman’s equivalent of Docker’s `host.docker.internal`.
 Therefore, the webhook endpoint configured in MinIO must be:
 
 ```text
-http://host.containers.internal:8000/minio
+http://host.containers.internal:8000/minio-event
 ```
 
 ---
@@ -139,7 +139,7 @@ Then configure the webhook endpoint:
 podman run --rm --network=host --entrypoint /bin/sh docker.io/minio/mc -lc '
   mc alias set myminio http://127.0.0.1:9000 admin <PASSWORD> &&
   mc admin config set myminio/ notify_webhook:1 \
-    endpoint="http://host.containers.internal:8000/minio"
+    endpoint="http://host.containers.internal:8000/minio-event"
 '
 ```
 
@@ -201,7 +201,7 @@ podman run --rm --network=host --entrypoint /bin/sh docker.io/minio/mc -lc '
 
 Expected result:
 
-* FastAPI receives a POST on `/minio`
+* FastAPI receives a POST on `/minio-event`
 * JSON payload contains:
 
   * `s3:ObjectCreated:Put`

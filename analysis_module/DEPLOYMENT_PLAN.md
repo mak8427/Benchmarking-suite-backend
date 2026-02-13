@@ -2,12 +2,12 @@
 
 ## Services
 - **External API**: `main.py` (auth + presign URLs). Exposed via Ingress/LoadBalancer.
-- **Internal Analysis Listener**: `analysis/minio_listener.py` (consumes MinIO `.h5` events, runs pipeline, writes to Postgres). Cluster-internal service only.
+- **Internal Analysis Listener**: `analysis_module/minio_listener.py` (consumes MinIO `.h5` events, runs pipeline, writes to Postgres). Cluster-internal service only.
 
 ## Container Images
 - Build separate images:
   - `main` image: starts FastAPI from `main.py`.
-  - `analysis-listener` image: starts FastAPI from `analysis/minio_listener.py` (uvicorn on port 8001).
+  - `analysis-listener` image: starts FastAPI from `analysis_module/minio_listener.py` (uvicorn on port 8001).
 
 ## Kubernetes Objects
 - Deployments:

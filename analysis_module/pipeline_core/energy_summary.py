@@ -21,7 +21,21 @@ APPLIANCE_CATALOG: List[Tuple[str, int]] = [
 
 
 def describe_energy_use(joules: float, return_tuple: bool = False):
-    """Translate energy usage into an everyday comparison."""
+    """Translate energy in joules into an everyday appliance comparison.
+
+    Args:
+        joules (float): Energy quantity in joules.
+        return_tuple (bool): Return tuple form when true, string otherwise.
+
+    Returns:
+        str | tuple[str, float, str]: Human description or machine-readable tuple.
+
+    Examples:
+        >>> "same energy" in describe_energy_use(3600)
+        True
+        >>> describe_energy_use(0, return_tuple=True)[0]
+        'negligible usage'
+    """
     import math
 
     if joules is None or joules <= 0 or math.isnan(joules):
@@ -74,7 +88,32 @@ def build_summary_dataframe(
     group_name: str,
     metrics: Dict[str, float],
 ) -> pl.DataFrame:
-    """Create a tabular summary from computed metrics."""
+    """Create a tabular summary dataframe from computed energy metrics.
+
+    Args:
+        job_id (str): Job identifier.
+        group_name (str): Group identifier.
+        metrics (Dict[str, float]): Computed metric values.
+
+    Returns:
+        pl.DataFrame: Summary table with metric values and human descriptions.
+
+    Examples:
+        >>> sample_metrics = {
+        ...     "energy_to_solution_j": 10.0,
+        ...     "time_to_solution_s": 2.0,
+        ...     "average_power_w": 5.0,
+        ...     "peak_power_w": 8.0,
+        ...     "peak_power_time_s": 1.0,
+        ...     "energy_delay_product": 20.0,
+        ...     "appliance_name": "a light bulb",
+        ...     "appliance_amount": 3.0,
+        ...     "appliance_unit": "m",
+        ... }
+        >>> summary = build_summary_dataframe("job1", "group1", sample_metrics)
+        >>> summary.height
+        6
+    """
 
     ets = metrics["energy_to_solution_j"]
     tts = metrics["time_to_solution_s"]

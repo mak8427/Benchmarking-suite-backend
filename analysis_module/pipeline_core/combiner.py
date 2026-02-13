@@ -8,7 +8,21 @@ import polars as pl
 
 
 def combine_frames(frames: List[Tuple[str, pl.DataFrame]]) -> pl.DataFrame:
-    """Merge task/energy frames on elapsed time and interpolate numeric fields."""
+    """Merge prefixed dataframes on elapsed time and interpolate numerics.
+
+    Args:
+        frames (List[Tuple[str, pl.DataFrame]]): Prefix/dataframe pairs.
+
+    Returns:
+        pl.DataFrame: Combined timeline dataframe.
+
+    Examples:
+        >>> left = pl.DataFrame({"ElapsedTime": [0, 1], "NodePower": [10.0, 20.0]})
+        >>> right = pl.DataFrame({"ElapsedTime": [1, 2], "CPUUtilization": [30.0, 40.0]})
+        >>> merged = combine_frames([("Energy", left), ("TaskA", right)])
+        >>> sorted(merged.columns)
+        ['ElapsedTime', 'Energy__NodePower', 'TaskA__CPUUtilization']
+    """
 
     timeline = (
         pl.concat([frame.select("ElapsedTime") for _, frame in frames], how="vertical")

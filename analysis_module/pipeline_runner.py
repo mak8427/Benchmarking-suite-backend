@@ -10,13 +10,13 @@ from typing import List, Tuple
 import duckdb
 from minio.error import S3Error
 
-from connectors.db import setup_duckdb_with_postgres
-from connectors.discovery import discover_h5_files
-from connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
-from processing.h5_processing import HDF5OpenError, h5_to_dataframe
-from utils.common import validate_h5_file
-from pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
-from pipeline_core.data_loader import sanitize_parts
+from analysis_module.connectors.db import setup_duckdb_with_postgres
+from analysis_module.connectors.discovery import discover_h5_files
+from analysis_module.connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
+from analysis_module.processing.h5_processing import HDF5OpenError, h5_to_dataframe
+from analysis_module.utils.common import validate_h5_file
+from analysis_module.pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
+from analysis_module.pipeline_core.data_loader import sanitize_parts
 
 
 def process_file(
@@ -27,7 +27,30 @@ def process_file(
     *,
     logger,
 ) -> None:
-    """Process a single HDF5 file and persist results into Postgres via DuckDB."""
+    """Process one HDF5 input and materialize it into PostgreSQL via DuckDB.
+
+    Args:
+        con (duckdb.DuckDBPyConnection): Active DuckDB connection.
+        file_label (str): Human-readable file label used in logs/table naming.
+        file_path (Path): Local path to the HDF5 file.
+        config (PipelineConfig): Runtime pipeline settings.
+        logger: Logger-like object providing ``info``/``warning``/``error``.
+
+    Examples:
+        >>> import analysis_module.pipeline_runner as mod
+        >>> class Logger:
+        ...     def info(self, *args, **kwargs): pass
+        ...     def warning(self, *args, **kwargs): pass
+        ...     def error(self, *args, **kwargs): pass
+        ...     def exception(self, *args, **kwargs): pass
+        >>> class Conn:
+        ...     def register(self, *args, **kwargs): raise AssertionError("unexpected register")
+        ...     def execute(self, *args, **kwargs): raise AssertionError("unexpected execute")
+        >>> old_validate = mod.validate_h5_file
+        >>> mod.validate_h5_file = lambda *_args, **_kwargs: False
+        >>> mod.process_file(Conn(), "job_1.h5", Path("missing.h5"), None, logger=Logger())
+        >>> mod.validate_h5_file = old_validate
+    """
 
     file_start = time.perf_counter()
 
@@ -86,12 +109,21 @@ def process_file(
 
 
 def run_pipeline() -> None:
-    """Main entrypoint to process HDF5 files into Postgres via DuckDB."""
+    """Run the full DuckDB/PostgreSQL pipeline workflow.
+
+    The function resolves runtime config, discovers source files, and delegates
+    per-file processing to :func:`process_file`.
+
+    Examples:
+        >>> parser = build_parser()
+        >>> any(action.dest == "source" for action in parser._actions)
+        True
+    """
 
     pipeline_start = time.perf_counter()
     minio_settings = resolve_minio_settings()
     base_dir = Path(__file__).resolve().parent
-    config = PipelineConfig.from_args(build_parser().parse_args([]), base_dir=base_dir)
+    config = PipelineConfig.from_args(build_parser().parse_args(), base_dir=base_dir)
     logger = configure_logging(config.log_file)
 
     log_minio_connection(minio_settings, logger=logger)

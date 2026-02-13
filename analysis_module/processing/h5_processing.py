@@ -7,13 +7,13 @@ from typing import List, Tuple
 import h5py
 import polars as pl
 
-from utils.common import timing_decorator
-from processing.casting import cast_all_columns
-from pipeline_core import PipelineConfig
-from pipeline_core.data_loader import dataset_prefix, dataset_to_polars, iter_datasets
-from pipeline_core.energy import add_task_derivatives, compute_energy_profile
-from pipeline_core.combiner import combine_frames
-from pipeline_core.pricing import integrate_price_data
+from analysis_module.utils.common import timing_decorator
+from analysis_module.processing.casting import cast_all_columns
+from analysis_module.pipeline_core import PipelineConfig
+from analysis_module.pipeline_core.data_loader import dataset_prefix, dataset_to_polars, iter_datasets
+from analysis_module.pipeline_core.energy import add_task_derivatives, compute_energy_profile
+from analysis_module.pipeline_core.combiner import combine_frames
+from analysis_module.pipeline_core.pricing import integrate_price_data
 
 
 class HDF5OpenError(RuntimeError):
@@ -24,7 +24,37 @@ class HDF5OpenError(RuntimeError):
 def h5_to_dataframe(
     file_path: Path, config: PipelineConfig, *, logger, display_name: str | None = None
 ) -> pl.dataframe.frame.DataFrame:
-    """Process a single HDF5 file and returns a Polars DataFrame."""
+    """Load an HDF5 file, merge telemetry streams, and return a dataframe.
+
+    Args:
+        file_path (Path): Path to an HDF5 input file.
+        config (PipelineConfig): Runtime pipeline configuration.
+        logger: Logger-like object for progress and error reporting.
+        display_name (str | None): Optional name to use in logs and job-id parsing.
+
+    Returns:
+        pl.dataframe.frame.DataFrame: Combined dataframe, or ``None`` when unusable.
+
+    Raises:
+        HDF5OpenError: Raised when the HDF5 file cannot be opened.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> from analysis_module.pipeline_core.config import PipelineConfig, PriceSettings
+        >>> class L:
+        ...     def info(self, *args, **kwargs): pass
+        ...     def warning(self, *args, **kwargs): pass
+        ...     def error(self, *args, **kwargs): pass
+        ...     def exception(self, *args, **kwargs): pass
+        >>> with TemporaryDirectory() as tmp:
+        ...     base = Path(tmp)
+        ...     cfg = PipelineConfig(base, base, base, base, base, base, base / "run.log", False, PriceSettings(1, "DE-LU", "quarterhour"), True)
+        ...     try:
+        ...         h5_to_dataframe(base / "missing.h5", cfg, logger=L(), display_name="missing.h5")
+        ...     except HDF5OpenError as exc:
+        ...         "Failed to open HDF5 file" in str(exc)
+        True
+    """
 
     file_label = display_name or file_path.name
     job_id_source = file_label if display_name else file_path.stem
