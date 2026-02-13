@@ -69,6 +69,39 @@ app = FastAPI(
     version="1.1.0",
 )
 
+_CONFIG_WARNINGS: List[str] = []
+
+
+def _validate_runtime_config() -> None:
+    """Collect non-fatal configuration warnings (optionally raise in strict mode)."""
+    warnings: List[str] = []
+    jwt_secret = os.getenv("JWT_SECRET", "")
+    if not jwt_secret or jwt_secret == "...":
+        warnings.append("JWT_SECRET is missing or using the placeholder value.")
+
+    if not os.getenv("MINIO_ACCESS_KEY"):
+        warnings.append("MINIO_ACCESS_KEY is not set.")
+    if not os.getenv("MINIO_SECRET_KEY"):
+        warnings.append("MINIO_SECRET_KEY is not set.")
+    if not (os.getenv("MINIO_PUBLIC_ENDPOINT") or os.getenv("MINIO_ADMIN_ENDPOINT")):
+        warnings.append("MINIO_PUBLIC_ENDPOINT or MINIO_ADMIN_ENDPOINT is not set.")
+    if not os.getenv("MINIO_BUCKET"):
+        warnings.append("MINIO_BUCKET is not set (default will be used).")
+
+    global _CONFIG_WARNINGS
+    _CONFIG_WARNINGS = warnings
+
+    if warnings:
+        for item in warnings:
+            LOGGER.warning("Config warning: %s", item)
+        if os.getenv("STRICT_CONFIG") == "1":
+            raise RuntimeError("Refusing to start with STRICT_CONFIG=1 due to config warnings.")
+
+
+@app.on_event("startup")
+def _startup_checks() -> None:
+    _validate_runtime_config()
+
 
 class UserCreate(BaseModel):
     """Request body for user registration payloads."""
