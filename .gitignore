@@ -10,3 +10,4 @@ http/http-client.private.env.json
 *.csv
 *.h5
 *.log
+.env
