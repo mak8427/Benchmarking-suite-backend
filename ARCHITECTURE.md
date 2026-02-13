@@ -9,6 +9,7 @@ Provide a secure, user-scoped storage API and a pipeline that processes uploaded
 - `api_backend/`
 - `api_backend/main.py`: FastAPI API entrypoint.
 - `api_backend/db.py`: SQLite persistence for users, refresh tokens, and jobs.
+- `main.py`: compatibility ASGI shim re-exporting `api_backend.main:app`.
 - `api_backend/util/auth_utils.py`: JWT and object-name validation helpers.
 - `api_backend/storage/minio_client.py`: MinIO client wiring.
 - `api_backend/performance_test/requests.py`: load generator.

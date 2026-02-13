@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.3] - 2026-02-13
+- Description:
+  - Fixed ASGI startup/import compatibility so the API can start with both `uvicorn api_backend.main:app` and `uvicorn main:app`.
+- Files touched:
+  - `api_backend/main.py`
+  - `main.py`
+- Reason:
+  - Prevent runtime `ModuleNotFoundError` caused by invocation-path differences between package and in-folder execution.
+- Problems fixed:
+  - Resolved startup failure `ModuleNotFoundError: No module named 'api_backend.db'` in environments launching from different working directories.
+  - Restored compatibility for root-module startup (`uvicorn main:app`).
+
 ## [0.0.2] - 2026-02-13
 - Description:
   - Implemented architecture-first compliance pass across API, analysis imports, tests, docs, and pre-commit checks.

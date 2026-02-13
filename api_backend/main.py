@@ -16,17 +16,34 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
 
-from api_backend.db import (
-    create_refresh_token,
-    create_user,
-    get_refresh_token,
-    get_user_by_id,
-    get_user_by_username,
-    init_db,
-    revoke_refresh_token,
-)
-from api_backend.storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO
-from api_backend.util.auth_utils import current_user, get_jwt_secret, sanitize
+try:
+    from api_backend.db import (
+        create_refresh_token,
+        create_user,
+        get_refresh_token,
+        get_user_by_id,
+        get_user_by_username,
+        init_db,
+        revoke_refresh_token,
+    )
+    from api_backend.storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO
+    from api_backend.util.auth_utils import current_user, get_jwt_secret, sanitize
+except ModuleNotFoundError as exc:
+    # Support running from inside ``api_backend/`` with ``uvicorn main:app``.
+    if exc.name and exc.name.startswith("api_backend"):
+        from db import (  # type: ignore[no-redef]
+            create_refresh_token,
+            create_user,
+            get_refresh_token,
+            get_user_by_id,
+            get_user_by_username,
+            init_db,
+            revoke_refresh_token,
+        )
+        from storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO  # type: ignore[no-redef]
+        from util.auth_utils import current_user, get_jwt_secret, sanitize  # type: ignore[no-redef]
+    else:
+        raise
 
 LOG_FILE = Path(os.getenv("LOG_FILE_PATH", "process.log"))
 logging.basicConfig(
