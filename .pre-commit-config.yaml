@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: file-length-check
+        name: file length check
+        entry: python scripts/check_file_length.py --root .
+        language: system
+        pass_filenames: false
+      - id: doctest-modules
+        name: pytest doctest modules
+        entry: pytest --doctest-modules
+        language: system
+        pass_filenames: false
+      - id: api-tests
+        name: api backend tests
+        entry: pytest -q api_backend/tests/test_auth_endpoints.py api_backend/tests/test_storage_endpoints.py api_backend/tests/test_utils.py
+        language: system
+        pass_filenames: false

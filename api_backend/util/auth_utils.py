@@ -1,34 +1,59 @@
-"""Utilities for authentication and request sanitisation."""
+"""Authentication and object-key sanitisation helpers."""
 
 from __future__ import annotations
 
 import os
 import re
-from typing import Annotated, Dict, Optional
+from typing import Annotated
 
 import jwt
 from fastapi import HTTPException, Header, status
 from jwt import PyJWTError
 
-AuthPayload = Dict[str, str]
-
-# NOTE: replace placeholder secret during deployment.
-SECRET = os.getenv("JWT_SECRET", "...").encode("utf-8")
+AuthPayload = dict[str, str]
 
 
-def current_user(
-    authorization: Annotated[Optional[str], Header(alias="Authorization")] = None
-) -> AuthPayload:
-    """Validate the Authorization header and return the associated identity.
+def get_jwt_secret() -> bytes:
+    """Load the JWT secret from environment.
 
-    Args:
-        authorization: Authorization header value (e.g. ``Bearer <token>``).
+    This helper centralizes secret loading and validation.
 
     Returns:
-        A dictionary containing the extracted username.
+        bytes: UTF-8 encoded secret.
 
     Raises:
-        HTTPException: Raised if the header is missing or the token is invalid.
+        RuntimeError: Raised when `JWT_SECRET` is missing.
+
+    Examples:
+        >>> os.environ["JWT_SECRET"] = "abc"
+        >>> get_jwt_secret()
+        b'abc'
+    """
+    secret = os.getenv("JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET environment variable must be set.")
+    return secret.encode("utf-8")
+
+
+def decode_user(
+    authorization: str | None,
+) -> AuthPayload:
+    """Validate a bearer token and return identity claims.
+
+    Args:
+        authorization (str | None): HTTP Authorization header value.
+
+    Returns:
+        AuthPayload: Dictionary with `user_id` and `username`.
+
+    Raises:
+        HTTPException: Raised when auth header or token is invalid.
+
+    Examples:
+        >>> os.environ["JWT_SECRET"] = "jwt-secret"
+        >>> token = jwt.encode({"sub": "u1", "username": "alice"}, get_jwt_secret(), algorithm="HS256")
+        >>> decode_user(f"Bearer {token}")
+        {'user_id': 'u1', 'username': 'alice'}
     """
     if not authorization:
         raise HTTPException(
@@ -42,6 +67,7 @@ def current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Malformed Authorization header.",
         ) from exc
+
     if scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -49,35 +75,58 @@ def current_user(
         )
 
     try:
-        payload = jwt.decode(token, SECRET, algorithms=["HS256"])
-    except PyJWTError as exc:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=["HS256"])
+    except (PyJWTError, RuntimeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token.",
         ) from exc
 
-    username = payload.get("sub")
-    if not username:
+    user_id = payload.get("sub")
+    username = payload.get("username")
+    if not user_id or not username:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing subject.",
+            detail="Token missing required claims.",
         )
-    return {"username": username}
+    return {"user_id": str(user_id), "username": str(username)}
+
+
+async def current_user(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> AuthPayload:
+    """FastAPI dependency wrapper for bearer-token validation.
+
+    Args:
+        authorization (str | None): HTTP Authorization header value.
+
+    Returns:
+        AuthPayload: Dictionary with `user_id` and `username`.
+
+    Examples:
+        >>> current_user.__name__
+        'current_user'
+    """
+    return decode_user(authorization)
 
 
 def sanitize(name: str) -> str:
-    """Sanitise user-supplied object names for safe storage usage.
+    """Sanitize user-supplied object names.
 
     Args:
-        name: Raw object name supplied by the user.
+        name (str): Raw object name supplied by clients.
 
     Returns:
-        A safe variant of the supplied name.
+        str: Sanitized object-safe filename.
 
     Raises:
-        HTTPException: Raised if the resulting name is empty or unsafe.
+        HTTPException: Raised when input is unsafe or empty.
+
+    Examples:
+        >>> sanitize("unsafe name.txt")
+        'unsafe_name.txt'
     """
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", name.strip())
     if not safe_name or ".." in safe_name or safe_name.startswith("/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

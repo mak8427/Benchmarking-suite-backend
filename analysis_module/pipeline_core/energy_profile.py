@@ -17,7 +17,27 @@ def compute_energy_profile(
     *,
     logger,
 ) -> Tuple[pl.DataFrame, Optional[Dict[str, float]]]:
-    """Compute cumulative energy metrics for a combined dataframe."""
+    """Compute cumulative energy and power metrics for a combined dataframe.
+
+    Args:
+        df (pl.DataFrame): Combined dataframe with ``ElapsedTime`` and power/energy fields.
+        job_id (str): Job identifier for logs and metrics.
+        group_name (str): Group identifier for logs and metrics.
+        logger: Logger-like object exposing ``info`` and ``warning`` methods.
+
+    Returns:
+        Tuple[pl.DataFrame, Optional[Dict[str, float]]]: Updated dataframe and
+        summary metrics, or ``None`` metrics when computation is impossible.
+
+    Examples:
+        >>> class L:
+        ...     def info(self, *args, **kwargs): pass
+        ...     def warning(self, *args, **kwargs): pass
+        >>> frame = pl.DataFrame({"ElapsedTime": [0.0, 1.0, 2.0], "NodePower": [10.0, 10.0, 10.0]})
+        >>> output, metrics = compute_energy_profile(frame, "job-1", "g1", logger=L())
+        >>> round(metrics["energy_to_solution_j"], 1)
+        20.0
+    """
 
     if df.is_empty():
         logger.warning(

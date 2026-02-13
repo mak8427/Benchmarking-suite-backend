@@ -1,144 +1,160 @@
+"""FastAPI webhook listener for MinIO object-created events."""
+
 from __future__ import annotations
 
-import logging
 import os
-from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import Dict, List, Tuple
+import shlex
+import subprocess
+import time
+from typing import Any
 
-import duckdb
-from fastapi import BackgroundTasks, FastAPI, HTTPException
-from minio import Minio
-from minio.error import S3Error
+from fastapi import BackgroundTasks, FastAPI, Request
 
-from analysis_module.pipeline_core import PipelineConfig, build_parser, configure_logging
-from analysis_module.pipeline_core.data_loader import sanitize_parts
-from analysis_module.processing.h5_processing import HDF5OpenError, h5_to_dataframe
-from analysis_module.utils.common import validate_h5_file
-from analysis_module.connectors.minio import resolve_minio_settings
-
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG = PipelineConfig.from_args(build_parser().parse_args([]), base_dir=BASE_DIR)
-LOGGER = configure_logging(CONFIG.log_file)
+app = FastAPI(title="Analysis Listener", version="1.0.0")
 
 
-def _postgres_conn_str() -> str:
-    host = os.getenv("POSTGRES_HOST", "127.0.0.1")
-    port = int(os.getenv("POSTGRES_PORT", "5432"))
-    dbname = os.getenv("POSTGRES_DB", "postgres")
-    user = os.getenv("POSTGRES_USER", "postgres")
-    password = os.getenv("POSTGRES_PASSWORD", "")
-    return f"host={host} port={port} dbname={dbname} user={user} password={password}"
+def launch_job(bucket: str, key: str) -> None:
+    """Launch an analysis job for an uploaded object.
 
+    Args:
+        bucket (str): Source bucket name.
+        key (str): Uploaded object key.
 
-def _setup_duckdb_connection(logger: logging.Logger) -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect()
-    con.execute("INSTALL postgres;")
-    con.execute("LOAD postgres;")
-    conn_str = _postgres_conn_str()
-    con.execute(f"ATTACH '{conn_str}' AS pg (TYPE postgres);")
-    logger.info("Attached DuckDB to PostgreSQL at %s", conn_str)
-    return con
-
-
-def _download_minio_object(client: Minio, bucket: str, object_name: str) -> Path:
-    tmp = NamedTemporaryFile(delete=False, suffix=".h5")
-    try:
-        client.fget_object(bucket, object_name, tmp.name)
-    except S3Error as exc:
-        raise RuntimeError(f"Failed to download {bucket}/{object_name}: {exc.code}") from exc
-    return Path(tmp.name)
-
-
-def _process_object(bucket: str, object_name: str, *, client: Minio, logger: logging.Logger) -> Dict[str, str]:
-    logger.info("Processing MinIO object %s/%s", bucket, object_name)
-    temp_path = _download_minio_object(client, bucket, object_name)
-
-    if not validate_h5_file(temp_path, logger=logger):
-        raise RuntimeError(f"Downloaded file is not a valid HDF5: {object_name}")
-
-    table_suffix = sanitize_parts([Path(object_name).stem])
-    table_name = f"job_{table_suffix}"
-    df_name = f"dataframe_{table_suffix}"
-
-    con = _setup_duckdb_connection(logger)
-    try:
-        dataframe = h5_to_dataframe(
-            temp_path,
-            config=CONFIG,
-            logger=logger,
-            display_name=Path(object_name).stem,
-        )
-        if dataframe is None or dataframe.is_empty():
-            raise RuntimeError(f"No usable data produced for {object_name}")
-
-        con.register(df_name, dataframe)
-        con.execute(f"DROP TABLE IF EXISTS pg.public.{table_name};")
-        con.execute(f"CREATE TABLE pg.public.{table_name} AS SELECT * FROM {df_name};")
-        logger.info("Created PostgreSQL table %s from %s", table_name, object_name)
-    finally:
-        con.close()
-        try:
-            temp_path.unlink()
-        except OSError:
-            logger.warning("Could not delete temp file %s", temp_path)
-
-    return {"bucket": bucket, "object": object_name, "table": table_name}
-
-
-def _build_minio_client() -> Minio:
-    settings = resolve_minio_settings()
-    missing = [name for name in ("endpoint", "access", "secret") if not settings.get(name)]
-    if missing:
-        raise RuntimeError("Missing MinIO settings: " + ", ".join(missing))
-    return Minio(
-        settings["endpoint"],
-        access_key=settings["access"],
-        secret_key=settings["secret"],
-        secure=bool(settings["secure"]),
+    Examples:
+        >>> import analysis_module.minio_listener as mod
+        >>> calls = {}
+        >>> def fake_run(command, capture_output, text, check):
+        ...     calls["command"] = command
+        ...     class Result:
+        ...         returncode = 0
+        ...         stdout = ""
+        ...         stderr = ""
+        ...     return Result()
+        >>> old_run = mod.subprocess.run
+        >>> mod.subprocess.run = fake_run
+        >>> mod.launch_job("bench", "sample.h5")  # doctest: +ELLIPSIS
+        listener_event=launch_job bucket=bench key=sample.h5 rc=0 cmd=kubectl create job duckdb-...
+        >>> calls["command"][:3]
+        ['kubectl', 'create', 'job']
+        >>> mod.subprocess.run = old_run
+    """
+    image = os.getenv("ANALYSIS_JOB_IMAGE", "localhost/duckdb-analysis:latest")
+    job_name = f"duckdb-{int(time.time())}"
+    command = [
+        "kubectl",
+        "create",
+        "job",
+        job_name,
+        f"--image={image}",
+        "--",
+        "python",
+        "analysis_module/duckdb_analysis.py",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    print(
+        "listener_event="
+        f"launch_job bucket={bucket} key={key} rc={result.returncode} "
+        f"cmd={shlex.join(command)}"
     )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
 
 
-app = FastAPI(title="MinIO HDF5 Listener", version="0.1.0")
-MINIO_CLIENT = _build_minio_client()
+async def _handle_minio_event(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Parse a MinIO webhook payload and enqueue a job.
+
+    Args:
+        request (Request): Incoming webhook request.
+        background_tasks (BackgroundTasks): FastAPI background task manager.
+
+    Returns:
+        dict[str, Any]: Status payload.
+
+    Examples:
+        >>> import asyncio
+        >>> class Req:
+        ...     async def json(self):
+        ...         return {"Records": [{"s3": {"bucket": {"name": "b"}, "object": {"key": "x.h5"}}}]}
+        >>> result = asyncio.run(_handle_minio_event(Req(), BackgroundTasks()))
+        >>> result["scheduled"]
+        1
+    """
+    payload = await request.json()
+    records = payload.get("Records", []) if isinstance(payload, dict) else []
+    if not records:
+        return {"ok": True, "scheduled": 0}
+
+    scheduled = 0
+    for record in records:
+        s3 = record.get("s3", {}) if isinstance(record, dict) else {}
+        bucket = s3.get("bucket", {}).get("name")
+        key = s3.get("object", {}).get("key")
+        if not bucket or not key:
+            continue
+        if not key.endswith(".h5"):
+            continue
+        background_tasks.add_task(launch_job, bucket, key)
+        scheduled += 1
+
+    return {"ok": True, "scheduled": scheduled}
 
 
 @app.get("/healthz")
-def health() -> Dict[str, str]:
+async def healthz() -> dict[str, str]:
+    """Readiness endpoint for listener service.
+
+    Returns:
+        dict[str, str]: Health status payload.
+
+    Examples:
+        >>> import asyncio
+        >>> asyncio.run(healthz())["status"]
+        'ok'
+    """
     return {"status": "ok"}
 
 
 @app.post("/minio-event")
-async def minio_event(payload: Dict, background_tasks: BackgroundTasks) -> Dict[str, object]:
-    records: List[Dict] = payload.get("Records") or []
-    if not records:
-        raise HTTPException(status_code=400, detail="No Records found in payload")
+async def minio_event(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Primary MinIO notification endpoint.
 
-    accepted: List[Tuple[str, str]] = []
-    for record in records:
-        s3_info = record.get("s3", {})
-        bucket = s3_info.get("bucket", {}).get("name")
-        object_name = s3_info.get("object", {}).get("key")
-        if not bucket or not object_name:
-            LOGGER.warning("Skipping record with missing bucket/key: %s", record)
-            continue
-        if not object_name.endswith(".h5"):
-            LOGGER.info("Ignoring non-h5 object: %s", object_name)
-            continue
+    Args:
+        request (Request): Incoming request.
+        background_tasks (BackgroundTasks): FastAPI background task manager.
 
-        accepted.append((bucket, object_name))
-        background_tasks.add_task(_process_object, bucket, object_name, client=MINIO_CLIENT, logger=LOGGER)
+    Returns:
+        dict[str, Any]: Scheduling summary.
 
-    if not accepted:
-        raise HTTPException(status_code=400, detail="No .h5 objects to process")
-
-    return {
-        "accepted": len(accepted),
-        "objects": [{"bucket": b, "object": o} for b, o in accepted],
-    }
+    Examples:
+        >>> import asyncio
+        >>> class Req:
+        ...     async def json(self):
+        ...         return {"Records": []}
+        >>> asyncio.run(minio_event(Req(), BackgroundTasks()))["scheduled"]
+        0
+    """
+    return await _handle_minio_event(request, background_tasks)
 
 
-if __name__ == "__main__":
-    import uvicorn
+@app.post("/minio")
+async def minio_legacy(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Legacy MinIO endpoint kept for backward compatibility.
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8001")))
+    Args:
+        request (Request): Incoming request.
+        background_tasks (BackgroundTasks): FastAPI background task manager.
+
+    Returns:
+        dict[str, Any]: Scheduling summary.
+
+    Examples:
+        >>> import asyncio
+        >>> class Req:
+        ...     async def json(self):
+        ...         return {"Records": []}
+        >>> asyncio.run(minio_legacy(Req(), BackgroundTasks()))["ok"]
+        True
+    """
+    return await _handle_minio_event(request, background_tasks)

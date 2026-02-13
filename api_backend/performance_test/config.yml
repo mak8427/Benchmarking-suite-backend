@@ -1,0 +1,6 @@
+url: http://localhost:8000/healthz
+requests: 10000
+concurrency: 200
+processes: 4
+timeout: 2.0
+http2: false

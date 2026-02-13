@@ -2,12 +2,30 @@ from __future__ import annotations
 
 import polars as pl
 
-from analysis.utils.common import timing_decorator
+from analysis_module.utils.common import timing_decorator
 
 
 @timing_decorator
 def cast_all_columns(df: pl.DataFrame, *, logger=None) -> pl.DataFrame:
-    """Cast columns to optimized types based on naming conventions."""
+    """Cast known telemetry columns to constrained numeric dtypes.
+
+    Args:
+        df (pl.DataFrame): Input dataframe containing raw telemetry columns.
+        logger: Optional logger used by the timing decorator.
+
+    Returns:
+        pl.DataFrame: Dataframe with selected columns cast to stricter types.
+
+    Examples:
+        >>> class L:
+        ...     def info(self, *args, **kwargs): pass
+        >>> sample = pl.DataFrame({"ElapsedTime": [1.0, -1.0], "NodePower": [100.0, 20000.0]})
+        >>> result = cast_all_columns(sample, logger=L())
+        >>> result["ElapsedTime"].to_list()
+        [1, None]
+        >>> result["NodePower"].to_list()
+        [100.0, None]
+    """
 
     cast_exprs = []
 

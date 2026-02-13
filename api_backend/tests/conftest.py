@@ -2,69 +2,72 @@
 
 from __future__ import annotations
 
-import logging
-from typing import Iterator
+import os
 import sys
 from pathlib import Path
+from typing import AsyncIterator, Iterator
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import main
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 
-
-@pytest.fixture(autouse=True)
-def isolate_environment(tmp_path) -> Iterator[None]:
-    """Provide isolated filesystem locations and reset global state."""
-    original_users = dict(main.USERS)
-    original_tokens = dict(main.TOKENS)
-    original_users_file = main.USERS_FILE
-    original_log_file = main.LOG_FILE
-
-    main.USERS.clear()
-    if "alice" in original_users:
-        main.USERS["alice"] = original_users["alice"]
-    main.TOKENS.clear()
-
-    main.USERS_FILE = tmp_path / "users.txt"
-    main.LOG_FILE = tmp_path / "process.log"
-    main.USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    main.USERS_FILE.touch()
-
-    for handler in list(main.LOGGER.handlers):
-        if isinstance(handler, logging.FileHandler):
-            handler.close()
-            main.LOGGER.removeHandler(handler)
-
-    main.app.dependency_overrides.clear()
-
-    yield
-
-    main.USERS.clear()
-    main.USERS.update(original_users)
-    main.TOKENS.clear()
-    main.TOKENS.update(original_tokens)
-    main.USERS_FILE = original_users_file
-    main.LOG_FILE = original_log_file
-
-    main.app.dependency_overrides.clear()
-
-    for handler in list(main.LOGGER.handlers):
-        if isinstance(handler, logging.FileHandler):
-            handler.close()
-            main.LOGGER.removeHandler(handler)
+from api_backend import main
+from api_backend.db import set_db_path
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
-    """Return a test client for the FastAPI application."""
-    test_client = TestClient(main.app)
-    try:
-        yield test_client
-    finally:
-        test_client.close()
-        main.app.dependency_overrides.clear()
+def anyio_backend() -> str:
+    """Force AnyIO to run tests on asyncio backend only.
+
+    This keeps async tests deterministic in local CI where Trio is not installed.
+
+    Returns:
+        str: Selected async backend name.
+
+    Examples:
+        >>> anyio_backend.__name__
+        'anyio_backend'
+    """
+    return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def isolate_environment(tmp_path: Path) -> Iterator[None]:
+    """Provide isolated filesystem locations and reset dependency overrides.
+
+    Args:
+        tmp_path (Path): Temporary directory provided by pytest.
+
+    Yields:
+        Iterator[None]: Control back to test body.
+
+    Examples:
+        >>> (Path("tmp") / "auth.db").name
+        'auth.db'
+    """
+    db_path = tmp_path / "auth.db"
+    set_db_path(db_path)
+    main.app.dependency_overrides.clear()
+    yield
+    main.app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client() -> AsyncIterator[httpx.AsyncClient]:
+    """Return an async HTTP client bound to the FastAPI ASGI app.
+
+    Yields:
+        AsyncIterator[httpx.AsyncClient]: Async API client.
+
+    Examples:
+        >>> "testserver" in "http://testserver"
+        True
+    """
+    transport = httpx.ASGITransport(app=main.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as api_client:
+        yield api_client

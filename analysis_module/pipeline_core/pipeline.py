@@ -17,7 +17,29 @@ from .discovery import collect_h5_files
 
 
 def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
-    """Process a single HDF5 file: export data, stats, summaries, and pricing."""
+    """Process one HDF5 file and export combined data/summary artifacts.
+
+    Args:
+        file_path (Path): HDF5 file to process.
+        config (PipelineConfig): Runtime pipeline settings.
+        logger: Logger-like object for diagnostics.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> from analysis_module.pipeline_core.config import PipelineConfig, PriceSettings
+        >>> class L:
+        ...     def info(self, *args, **kwargs): pass
+        ...     def warning(self, *args, **kwargs): pass
+        ...     def exception(self, *args, **kwargs): pass
+        >>> with TemporaryDirectory() as tmp:
+        ...     base = Path(tmp)
+        ...     cfg = PipelineConfig(base, base, base / "out", base / "stats", base / "summary", base / "price", base / "run.log", False, PriceSettings(4169, "DE-LU", "quarterhour"), True)
+        ...     ensure_directories(cfg)
+        ...     file_path = base / "job_1.h5"
+        ...     with h5py.File(file_path, "w") as handle:
+        ...         _ = handle.create_group("group_a")
+        ...     process_h5_file(file_path, cfg, logger=L())
+    """
 
     job_id = file_path.stem.split("_")[0] if "_" in file_path.stem else file_path.stem
     logger.info("Processing %s", file_path.name)
@@ -137,7 +159,32 @@ def process_h5_file(file_path: Path, config: PipelineConfig, *, logger) -> None:
 
 
 def run_pipeline(config: PipelineConfig, *, logger) -> None:
-    """Validate configuration and process all available HDF5 files."""
+    """Validate runtime state and process all discovered HDF5 inputs.
+
+    Args:
+        config (PipelineConfig): Runtime pipeline settings.
+        logger: Logger-like object for diagnostics.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> import analysis_module.pipeline_core.pipeline as mod
+        >>> from analysis_module.pipeline_core.config import PipelineConfig, PriceSettings
+        >>> class L:
+        ...     def __init__(self):
+        ...         self.warning_calls = 0
+        ...     def warning(self, *args, **kwargs):
+        ...         self.warning_calls += 1
+        >>> with TemporaryDirectory() as tmp:
+        ...     base = Path(tmp)
+        ...     cfg = PipelineConfig(base, base / "src", base / "out", base / "stats", base / "summary", base / "price", base / "run.log", False, PriceSettings(4169, "DE-LU", "quarterhour"), True)
+        ...     old_collect = mod.collect_h5_files
+        ...     mod.collect_h5_files = lambda *_args, **_kwargs: []
+        ...     logger = L()
+        ...     mod.run_pipeline(cfg, logger=logger)
+        ...     mod.collect_h5_files = old_collect
+        ...     logger.warning_calls >= 1
+        True
+    """
 
     validate_source(config)
     ensure_directories(config)

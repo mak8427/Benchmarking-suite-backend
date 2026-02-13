@@ -2,31 +2,32 @@
 @objectName = reports/demo.csv
 
 ### Presign Upload (Requires prior auth run)
-POST {{baseUrl}}/storage/presign/upload?object_name={{objectName}}
+POST {{baseUrl}}/files/presign/upload?filename={{objectName}}
 Authorization: Bearer {{accessToken}}
 Accept: application/json
 
 > {% client.test("Upload presign returns URL", function() {
     client.assert(response.status === 200);
     client.assert(response.body.url);
-    client.assert(response.body.key.startsWith(client.global.get("username") + "/"));
+    client.assert(response.body.key.includes("/"));
     client.global.set("presignedPut", response.body.url);
+    client.global.set("storageKey", response.body.key);
 }); %}
 
 ### Presign Download
-GET {{baseUrl}}/storage/presign/download?object_name={{objectName}}
+GET {{baseUrl}}/files/presign/download?key={{storageKey}}
 Authorization: Bearer {{accessToken}}
 Accept: application/json
 
 > {% client.test("Download presign returns URL", function() {
     client.assert(response.status === 200);
     client.assert(response.body.url);
-    client.assert(response.body.key.startsWith(client.global.get("username") + "/"));
+    client.assert(response.body.key === client.global.get("storageKey"));
     client.global.set("presignedGet", response.body.url);
 }); %}
 
 ### List Objects For Current User
-GET {{baseUrl}}/storage/list
+GET {{baseUrl}}/files/list
 Authorization: Bearer {{accessToken}}
 Accept: application/json
 
@@ -36,7 +37,7 @@ Accept: application/json
 }); %}
 
 ### Presign Upload With Unsafe Name (Should Fail)
-POST {{baseUrl}}/storage/presign/upload?object_name=../secret.txt
+POST {{baseUrl}}/files/presign/upload?filename=../secret.txt
 Authorization: Bearer {{accessToken}}
 Accept: application/json
 

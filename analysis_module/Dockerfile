@@ -3,12 +3,9 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install Python dependencies from the repo root requirements
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only analysis code to keep the image smaller
-COPY analysis_module /app/analysis_module
+COPY . .
 
-WORKDIR /app/analysis_module
-CMD ["python", "-u", "duckdb_analysis.py"]
+CMD ["python", "-m", "analysis.duckdb_analysis"]

@@ -22,8 +22,8 @@ Accept: application/json
     client.global.set("password", "{{password}}");
 }); %}
 
-### Login With Stored Credentials
-POST {{baseUrl}}/auth/password?u={{username}}&p={{password}}
+### Login With Stored Credentials (canonical)
+POST {{baseUrl}}/auth/login?u={{username}}&p={{password}}
 Accept: application/json
 
 > {% client.test("Login returns tokens", function() {
@@ -48,7 +48,7 @@ Accept: application/json
 }); %}
 
 ### Failed Login Attempt
-POST {{baseUrl}}/auth/password?u={{username}}&p={{password}}x
+POST {{baseUrl}}/auth/login?u={{username}}&p={{password}}x
 Accept: application/json
 
 > {% client.test("Bad password rejected", function() {

@@ -1,6 +1,4 @@
-"""
-Configuration parsing and logging initialisation.
-"""
+"""Configuration parsing and runtime validation for the analysis pipeline."""
 
 from __future__ import annotations
 
@@ -8,77 +6,80 @@ import argparse
 import dataclasses
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any
+
+import yaml
+
+
+DEFAULT_CONFIG_PATH = Path("pipeline_config.yml")
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    """Load a YAML config file from disk.
+
+    Args:
+        path (Path): Configuration file path.
+
+    Returns:
+        dict[str, Any]: Parsed config mapping.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     cfg = Path(tmp) / "pipeline.yml"
+        ...     _ = cfg.write_text("fetch_price: true\\n", encoding="utf-8")
+        ...     _load_yaml(cfg)["fetch_price"]
+        True
+    """
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"Config file must contain a mapping: {path}")
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Construct and return the CLI argument parser."""
+    """Construct and return the CLI argument parser.
+
+    Returns:
+        argparse.ArgumentParser: Parser for runtime configuration.
+
+    Examples:
+        >>> parser = build_parser()
+        >>> parser.parse_args(["--source", "inputs"]).source
+        PosixPath('inputs')
+    """
     parser = argparse.ArgumentParser(
-        description="Parse GROM SLURM energy HDF5 files and export CSV data and summary stats.",
+        description="Parse GROM SLURM energy HDF5 files and export analysis tables.",
     )
     parser.add_argument(
-        "--source",
+        "--config",
         type=Path,
-        default=Path("u18101"),
-        help="Directory containing input .h5 files (default: u18101 relative to this script).",
+        default=DEFAULT_CONFIG_PATH,
+        help="YAML config path (default: pipeline_config.yml).",
     )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("output"),
-        help="Directory for exported CSV data (default: output relative to this script).",
-    )
-    parser.add_argument(
-        "--stats-dir",
-        type=Path,
-        default=Path("stats"),
-        help="Directory for CSV stats summaries (default: stats relative to this script).",
-    )
-    parser.add_argument(
-        "--summary-dir",
-        type=Path,
-        default=Path("summaries"),
-        help="Directory for per-job metric summaries (default: summaries relative to this script).",
-    )
-    parser.add_argument(
-        "--price-dir",
-        type=Path,
-        default=Path("prices"),
-        help="Directory for fetched SMARD price series (default: prices relative to this script).",
-    )
-    parser.add_argument(
-        "--log-file",
-        type=Path,
-        default=Path("analysis.log"),
-        help="File path for detailed processing logs (default: analysis.log relative to this script).",
-    )
+    parser.add_argument("--source", type=Path, default=None, help="Override source .h5 directory.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Override output CSV directory.")
+    parser.add_argument("--stats-dir", type=Path, default=None, help="Override stats directory.")
+    parser.add_argument("--summary-dir", type=Path, default=None, help="Override summary directory.")
+    parser.add_argument("--price-dir", type=Path, default=None, help="Override price data directory.")
+    parser.add_argument("--log-file", type=Path, default=None, help="Override log output file.")
     parser.add_argument(
         "--fetch-price",
         action="store_true",
-        help="When set, fetch SMARD market data to estimate cumulative job cost.",
+        default=None,
+        help="Enable market price integration.",
     )
-    parser.add_argument(
-        "--price-filter-id",
-        type=int,
-        default=4169,
-        help="SMARD filter identifier (default: 4169 – Day-ahead auction).",
-    )
-    parser.add_argument(
-        "--price-region",
-        type=str,
-        default="DE-LU",
-        help="SMARD bidding zone/region (default: DE-LU).",
-    )
-    parser.add_argument(
-        "--price-resolution",
-        type=str,
-        default="quarterhour",
-        help="SMARD resolution string (default: quarterhour).",
-    )
+    parser.add_argument("--price-filter-id", type=int, default=None, help="SMARD filter id.")
+    parser.add_argument("--price-region", type=str, default=None, help="SMARD region.")
+    parser.add_argument("--price-resolution", type=str, default=None, help="SMARD resolution.")
     parser.add_argument(
         "--allow-missing-source",
         action="store_true",
-        help="Skip local source directory validation (useful for MinIO/S3 inputs).",
+        default=None,
+        help="Skip local source-dir existence check.",
     )
     return parser
 
@@ -109,32 +110,89 @@ class PipelineConfig:
 
     @classmethod
     def from_args(cls, args: argparse.Namespace, base_dir: Path) -> "PipelineConfig":
-        """Create a pipeline config from parsed CLI arguments."""
+        """Create a pipeline config from parsed CLI arguments and optional YAML.
 
-        def resolve(path: Path) -> Path:
-            return path if path.is_absolute() else base_dir / path
+        Args:
+            args (argparse.Namespace): Parsed command-line arguments.
+            base_dir (Path): Base directory for relative path resolution.
+
+        Returns:
+            PipelineConfig: Materialized runtime config.
+
+        Examples:
+            >>> parser = build_parser()
+            >>> namespace = parser.parse_args(["--source", "raw", "--fetch-price"])
+            >>> cfg = PipelineConfig.from_args(namespace, Path("."))
+            >>> cfg.source_dir.name
+            'raw'
+        """
+
+        config_path = args.config if args.config.is_absolute() else base_dir / args.config
+        file_values = _load_yaml(config_path)
+
+        def _pick(name: str, default: Any) -> Any:
+            """Choose argument value, then YAML value, then fallback default.
+
+            Args:
+                name (str): Field name to resolve.
+                default (Any): Final fallback value.
+
+            Returns:
+                Any: Selected value for the field.
+            """
+            value = getattr(args, name)
+            if value is not None:
+                return value
+            if name in file_values:
+                return file_values[name]
+            return default
+
+        def _resolve(path_like: Any, fallback: str) -> Path:
+            """Resolve a potentially relative path against ``base_dir``.
+
+            Args:
+                path_like (Any): Candidate path-like value.
+                fallback (str): Default relative path when missing.
+
+            Returns:
+                Path: Absolute or base-dir-resolved path.
+            """
+            selected = Path(path_like or fallback)
+            return selected if selected.is_absolute() else base_dir / selected
 
         return cls(
             base_dir=base_dir,
-            source_dir=resolve(args.source),
-            output_dir=resolve(args.output_dir),
-            stats_dir=resolve(args.stats_dir),
-            summary_dir=resolve(args.summary_dir),
-            price_dir=resolve(args.price_dir),
-            log_file=resolve(args.log_file),
-            fetch_price=args.fetch_price,
-            allow_missing_source=args.allow_missing_source,
+            source_dir=_resolve(_pick("source", "u18101"), "u18101"),
+            output_dir=_resolve(_pick("output_dir", "output"), "output"),
+            stats_dir=_resolve(_pick("stats_dir", "stats"), "stats"),
+            summary_dir=_resolve(_pick("summary_dir", "summaries"), "summaries"),
+            price_dir=_resolve(_pick("price_dir", "prices"), "prices"),
+            log_file=_resolve(_pick("log_file", "analysis.log"), "analysis.log"),
+            fetch_price=bool(_pick("fetch_price", False)),
+            allow_missing_source=bool(_pick("allow_missing_source", False)),
             price=PriceSettings(
-                filter_id=args.price_filter_id,
-                region=args.price_region,
-                resolution=args.price_resolution,
+                filter_id=int(_pick("price_filter_id", 4169)),
+                region=str(_pick("price_region", "DE-LU")),
+                resolution=str(_pick("price_resolution", "quarterhour")),
             ),
         )
 
 
 def ensure_directories(config: PipelineConfig) -> None:
-    """Ensure all output directories requested in *config* exist."""
+    """Ensure all output directories requested in `config` exist.
 
+    Args:
+        config (PipelineConfig): Pipeline runtime configuration.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     base = Path(tmp)
+        ...     cfg = PipelineConfig(base, base, base / "out", base / "stats", base / "summary", base / "price", base / "run.log", True, PriceSettings(1, "DE-LU", "quarterhour"), True)
+        ...     ensure_directories(cfg)
+        ...     cfg.output_dir.exists() and cfg.price_dir.exists()
+        True
+    """
     config.output_dir.mkdir(parents=True, exist_ok=True)
     config.stats_dir.mkdir(parents=True, exist_ok=True)
     config.summary_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +201,21 @@ def ensure_directories(config: PipelineConfig) -> None:
 
 
 def validate_source(config: PipelineConfig) -> None:
-    """Raise if the configured source directory does not exist."""
+    """Raise when a required source directory is missing.
+
+    Args:
+        config (PipelineConfig): Pipeline runtime configuration.
+
+    Raises:
+        FileNotFoundError: Raised when source directory does not exist.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     base = Path(tmp)
+        ...     cfg = PipelineConfig(base, base / "missing", base / "out", base / "stats", base / "summary", base / "price", base / "run.log", False, PriceSettings(1, "DE-LU", "quarterhour"), True)
+        ...     validate_source(cfg)
+    """
     if config.allow_missing_source or os.getenv("MINIO_SYNC"):
         return
     if not config.source_dir.exists():

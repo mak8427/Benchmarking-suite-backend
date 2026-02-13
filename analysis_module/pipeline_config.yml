@@ -1,0 +1,11 @@
+source: u18101
+output_dir: output
+stats_dir: stats
+summary_dir: summaries
+price_dir: prices
+log_file: analysis.log
+fetch_price: false
+price_filter_id: 4169
+price_region: DE-LU
+price_resolution: quarterhour
+allow_missing_source: false

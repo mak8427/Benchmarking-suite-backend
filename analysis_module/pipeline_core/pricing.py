@@ -20,7 +20,35 @@ def integrate_price_data(
     resolution: str,
     logger,
 ) -> Tuple[pl.DataFrame, Optional[pl.DataFrame]]:
-    """Join SMARD price data onto ``df`` using a nearest-time asof join."""
+    """Attach SMARD prices to the telemetry dataframe via asof join.
+
+    Args:
+        df (pl.DataFrame): Telemetry dataframe.
+        epoch_column (Optional[str]): Epoch-time column used as join key.
+        filter_id (int): SMARD filter identifier.
+        region (str): SMARD region code.
+        resolution (str): SMARD resolution token.
+        logger: Logger used for diagnostics.
+
+    Returns:
+        Tuple[pl.DataFrame, Optional[pl.DataFrame]]: Updated dataframe and raw
+        price dataframe when available.
+
+    Examples:
+        >>> class L:
+        ...     def warning(self, *args, **kwargs): pass
+        >>> sample = pl.DataFrame({"EpochTime": [1, 2], "Energy_used_J": [0.0, 10.0]})
+        >>> enriched, prices = integrate_price_data(
+        ...     sample,
+        ...     None,
+        ...     filter_id=4169,
+        ...     region="DE-LU",
+        ...     resolution="quarterhour",
+        ...     logger=L(),
+        ... )
+        >>> prices is None and enriched.shape == (2, 2)
+        True
+    """
 
     if epoch_column is None:
         logger.warning("No epoch time column detected; skipping price integration.")

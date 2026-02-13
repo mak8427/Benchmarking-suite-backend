@@ -22,6 +22,16 @@ def iter_datasets(
 
     Yields:
         Tuples of updated path components and the discovered dataset.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     with h5py.File(f"{tmp}/sample.h5", "w") as handle:
+        ...         grp = handle.create_group("g")
+        ...         _ = grp.create_dataset("values", data=[1, 2])
+        ...         found = list(iter_datasets(grp, ["g"]))
+        ...         len(found)
+        1
     """
     for key, child in node.items():
         current_path = path_parts + [key]
@@ -39,6 +49,15 @@ def dataset_to_polars(dataset: h5py.Dataset) -> pl.DataFrame:
 
     Returns:
         A Polars DataFrame representation of the dataset.
+
+    Examples:
+        >>> from tempfile import TemporaryDirectory
+        >>> with TemporaryDirectory() as tmp:
+        ...     with h5py.File(f"{tmp}/sample.h5", "w") as handle:
+        ...         dset = handle.create_dataset("values", data=[1, 2, 3])
+        ...         frame = dataset_to_polars(dset)
+        ...         frame.shape
+        (3, 1)
     """
     data = dataset[()]
     if np.isscalar(data):
@@ -68,6 +87,10 @@ def sanitize_parts(parts: Iterable[str]) -> str:
 
     Returns:
         A flattened identifier separated by double underscores.
+
+    Examples:
+        >>> sanitize_parts(["a/b", "c"])
+        'a_b__c'
     """
     return "__".join(part.replace("/", "_") for part in parts)
 
@@ -80,6 +103,10 @@ def dataset_prefix(path_parts: List[str]) -> str:
 
     Returns:
         A stable identifier string derived from the path.
+
+    Examples:
+        >>> dataset_prefix(["group", "task", "energy"])
+        'task__energy'
     """
     trimmed = path_parts[1:] if len(path_parts) > 1 else path_parts
     trimmed = [part for part in trimmed if part]

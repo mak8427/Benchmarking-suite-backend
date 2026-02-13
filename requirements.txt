@@ -10,4 +10,4 @@ polars
 uvicorn
 numpy
 pyarrow
-pyarrow
+pyyaml
