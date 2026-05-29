@@ -33,7 +33,7 @@ class StubMinio:
         self.list_exception = None
         self.list_objects_response = []
 
-    def presigned_put_object(self, bucket, key, expires):
+    def presigned_put_object(self, bucket, key, expires, headers=None):
         """Return a stable upload URL and track invocation.
 
         Args:
@@ -48,7 +48,7 @@ class StubMinio:
         """
         if self.put_exception:
             raise self.put_exception
-        self.put_requests.append((bucket, key, expires))
+        self.put_requests.append((bucket, key, expires, headers or {}))
         return "https://example.com/upload"
 
     def presigned_get_object(self, bucket, key, expires):
@@ -154,9 +154,11 @@ async def test_presign_upload_returns_url(client, storage_clients) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["url"] == "https://example.com/upload"
+    assert body["headers"] == {"x-amz-acl": "private"}
     assert body["key"].startswith(f"{user_id}/")
     assert body["key"].endswith("_report.csv")
     assert public_client.put_requests[0][0] == main.BUCKET
+    assert public_client.put_requests[0][3] == {"x-amz-acl": "private"}
 
 
 @pytest.mark.anyio

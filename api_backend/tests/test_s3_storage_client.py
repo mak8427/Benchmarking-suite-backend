@@ -64,10 +64,15 @@ def test_s3_storage_client_presigns_with_expected_methods(monkeypatch) -> None:
         )
     )
 
-    assert client.presigned_put_object("bucket", "key.txt", timedelta(seconds=60)).endswith("put_object")
+    assert client.presigned_put_object(
+        "bucket",
+        "key.txt",
+        timedelta(seconds=60),
+        headers={"x-amz-acl": "private"},
+    ).endswith("put_object")
     assert client.presigned_get_object("bucket", "key.txt", timedelta(seconds=30)).endswith("get_object")
     assert calls == [
-        ("put_object", {"Bucket": "bucket", "Key": "key.txt"}, 60, "PUT"),
+        ("put_object", {"Bucket": "bucket", "Key": "key.txt", "ACL": "private"}, 60, "PUT"),
         ("get_object", {"Bucket": "bucket", "Key": "key.txt"}, 30, "GET"),
     ]
 

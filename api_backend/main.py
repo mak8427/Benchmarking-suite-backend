@@ -140,6 +140,7 @@ class PresignResponse(BaseModel):
     key: str
     url: str
     expires_in: str
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 @app.on_event("startup")
@@ -344,14 +345,15 @@ def _presign_upload(key: str, minio_client: Any) -> PresignResponse:
 
     Examples:
         >>> class _M:
-        ...     def presigned_put_object(self, bucket, key, expires):
+        ...     def presigned_put_object(self, bucket, key, expires, headers=None):
         ...         return "http://example/upload"
         >>> _presign_upload("u1/a.txt", _M()).key
         'u1/a.txt'
     """
     expires = timedelta(seconds=PRESIGN_EXPIRATION_SECONDS)
-    url = minio_client.presigned_put_object(BUCKET, key, expires=expires)
-    return PresignResponse(key=key, url=url, expires_in=str(PRESIGN_EXPIRATION_SECONDS))
+    headers = {"x-amz-acl": "private"}
+    url = minio_client.presigned_put_object(BUCKET, key, expires=expires, headers=headers)
+    return PresignResponse(key=key, url=url, expires_in=str(PRESIGN_EXPIRATION_SECONDS), headers=headers)
 
 
 def _presign_download(key: str, minio_client: Any) -> PresignResponse:

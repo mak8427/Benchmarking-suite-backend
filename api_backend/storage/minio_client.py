@@ -137,11 +137,21 @@ class S3StorageClient:
             config=_boto_config(),
         )
 
-    def presigned_put_object(self, bucket: str, key: str, expires: timedelta) -> str:
+    def presigned_put_object(
+        self,
+        bucket: str,
+        key: str,
+        expires: timedelta,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> str:
         """Return a presigned PUT URL for ``bucket/key``."""
+        params = {"Bucket": bucket, "Key": key}
+        if headers and headers.get("x-amz-acl"):
+            params["ACL"] = headers["x-amz-acl"]
         return self._client.generate_presigned_url(
             "put_object",
-            Params={"Bucket": bucket, "Key": key},
+            Params=params,
             ExpiresIn=int(expires.total_seconds()),
             HttpMethod="PUT",
         )
