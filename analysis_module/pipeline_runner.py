@@ -12,6 +12,7 @@ import duckdb
 from analysis_module.connectors.db import setup_duckdb_with_postgres
 from analysis_module.connectors.discovery import discover_h5_files
 from analysis_module.connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
+from analysis_module.connectors.normalized import write_dashboard_tables
 from analysis_module.processing.h5_processing import HDF5OpenError, h5_to_dataframe
 from analysis_module.utils.common import validate_h5_file
 from analysis_module.pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
@@ -100,6 +101,11 @@ def process_file(
         create_start = time.perf_counter()
         con.execute(f"CREATE TABLE pg.public.{table_name} AS SELECT * FROM {df_name};")
         logger.info("⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start)
+
+        logger.info("Writing normalized dashboard tables...")
+        dashboard_start = time.perf_counter()
+        write_dashboard_tables(con, dataframe, file_label=file_label, logger=logger)
+        logger.info("⏱️  Dashboard table write took %.3f seconds", time.perf_counter() - dashboard_start)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to materialize table %s: %s", table_name, exc)
         return

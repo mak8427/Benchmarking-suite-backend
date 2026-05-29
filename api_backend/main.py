@@ -10,9 +10,11 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from passlib.hash import argon2
 from pydantic import BaseModel, Field
 
@@ -24,8 +26,10 @@ try:
         get_user_by_id,
         get_user_by_username,
         init_db,
+        record_storage_object,
         revoke_refresh_token,
     )
+    from api_backend.grafana import GrafanaProvisioner
     from api_backend.storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO
     from api_backend.util.auth_utils import current_user, get_jwt_secret, sanitize
 except ModuleNotFoundError as exc:
@@ -38,8 +42,10 @@ except ModuleNotFoundError as exc:
             get_user_by_id,
             get_user_by_username,
             init_db,
+            record_storage_object,
             revoke_refresh_token,
         )
+        from grafana import GrafanaProvisioner  # type: ignore[no-redef]
         from storage.minio_client import ADMIN_MINIO, BUCKET, PUBLIC_MINIO  # type: ignore[no-redef]
         from util.auth_utils import current_user, get_jwt_secret, sanitize  # type: ignore[no-redef]
     else:
@@ -59,6 +65,8 @@ LOGGER = logging.getLogger(__name__)
 ACCESS_TOKEN_TTL_SECONDS = 600
 REFRESH_TOKEN_TTL_SECONDS = 30 * 86400
 PRESIGN_EXPIRATION_SECONDS = 600
+GRAFANA_SESSION_TTL_SECONDS = int(os.getenv("GRAFANA_SESSION_TTL_SECONDS", str(12 * 3600)))
+GRAFANA_SESSION_COOKIE = os.getenv("GRAFANA_SESSION_COOKIE", "bench_grafana_session")
 
 MAX_OBJECTS_PER_USER = int(os.getenv("MAX_OBJECTS_PER_USER", "1000"))
 MAX_STORAGE_BYTES_PER_USER = int(os.getenv("MAX_STORAGE_BYTES_PER_USER", str(10 * 1024**3)))
@@ -272,6 +280,35 @@ def _issue_refresh_token(user_id: str) -> str:
     return refresh_id
 
 
+def _make_grafana_session(user: dict[str, Any]) -> str:
+    """Create a signed Grafana auth-proxy session token."""
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sub": user["id"],
+            "username": user["username"],
+            "iat": now,
+            "exp": now + GRAFANA_SESSION_TTL_SECONDS,
+            "aud": "grafana-auth-proxy",
+        },
+        get_jwt_secret(),
+        algorithm="HS256",
+    )
+
+
+def _decode_grafana_session(token: str | None) -> dict[str, str]:
+    """Validate a Grafana auth-proxy session token."""
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Missing Grafana session.")
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=["HS256"], audience="grafana-auth-proxy")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid Grafana session.") from exc
+    if not payload.get("sub") or not payload.get("username"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid Grafana session.")
+    return {"user_id": str(payload["sub"]), "username": str(payload["username"])}
+
+
 def _build_upload_key(user_id: str, filename: str) -> str:
     """Build a collision-safe key under the authenticated user prefix.
 
@@ -425,6 +462,10 @@ async def register(payload: UserCreate) -> AuthTokens:
         )
 
     user = create_user(payload.username, argon2.hash(payload.password))
+    try:
+        GrafanaProvisioner().provision_user(user_id=user["id"], username=user["username"])
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Grafana provisioning failed for user %s: %s", user["username"], exc)
     refresh_id = _issue_refresh_token(user["id"])
     return AuthTokens(access=make_access(user["id"], user["username"]), refresh=refresh_id)
 
@@ -513,6 +554,67 @@ async def refresh(
     return AuthTokens(access=make_access(user["id"], user["username"]), refresh=new_refresh)
 
 
+@app.get("/grafana-auth/login", response_class=HTMLResponse, include_in_schema=False)
+async def grafana_login_form() -> HTMLResponse:
+    """Return a minimal backend-authenticated Grafana login form."""
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html><head><title>Benchmarking Suite Login</title></head>
+        <body>
+          <form method="post" action="/grafana-auth/login">
+            <label>Username <input name="username" autocomplete="username"></label>
+            <label>Password <input name="password" type="password" autocomplete="current-password"></label>
+            <button type="submit">Log in</button>
+          </form>
+        </body></html>
+        """
+    )
+
+
+@app.post("/grafana-auth/login", include_in_schema=False)
+async def grafana_login(request: Request) -> Response:
+    """Authenticate backend credentials and set a Grafana auth-proxy cookie."""
+    form = parse_qs((await request.body()).decode("utf-8"))
+    username = (form.get("username") or [""])[0]
+    password = (form.get("password") or [""])[0]
+    user = get_user_by_username(username)
+    if not user or not argon2.verify(password, user["pw_hash"]):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    try:
+        GrafanaProvisioner().provision_user(user_id=user["id"], username=user["username"])
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Grafana provisioning failed for user %s: %s", user["username"], exc)
+    response = RedirectResponse(url="/grafana/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        GRAFANA_SESSION_COOKIE,
+        _make_grafana_session(user),
+        max_age=GRAFANA_SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/grafana-auth/logout", include_in_schema=False)
+async def grafana_logout() -> Response:
+    """Clear the Grafana auth-proxy cookie."""
+    response = RedirectResponse(url="/grafana-auth/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(GRAFANA_SESSION_COOKIE)
+    return response
+
+
+@app.get("/grafana-auth/verify", include_in_schema=False)
+async def grafana_auth_proxy(request: Request) -> Response:
+    """Traefik forward-auth endpoint that emits Grafana auth-proxy headers."""
+    user = _decode_grafana_session(request.cookies.get(GRAFANA_SESSION_COOKIE))
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.headers["X-WEBAUTH-USER"] = user["username"]
+    response.headers["X-WEBAUTH-NAME"] = user["username"]
+    response.headers["X-WEBAUTH-EMAIL"] = f"{user['username']}@benchmarking-suite.local"
+    return response
+
+
 @app.post("/files/presign/upload")
 async def create_upload_url(
     filename: str = Query(..., description="Name of file to upload."),
@@ -535,6 +637,12 @@ async def create_upload_url(
     admin_minio_client = get_admin_minio_client()
     _enforce_upload_quota(user["user_id"], admin_minio_client)
     key = _build_upload_key(user["user_id"], filename)
+    record_storage_object(
+        object_key=key,
+        user_id=user["user_id"],
+        username=user["username"],
+        original_filename=filename,
+    )
     try:
         return _presign_upload(key, minio_client)
     except Exception as exc:  # noqa: BLE001

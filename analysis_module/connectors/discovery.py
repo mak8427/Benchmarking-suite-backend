@@ -60,7 +60,7 @@ def discover_h5_files(
             object_name,
             logger=logger,
         )
-        h5_files.append((Path(object_name).stem, path))
+        h5_files.append((object_name, path))
     logger.info("⏱️  File discovery took %.3f seconds", time.perf_counter() - step_start)
 
     if not h5_files:

@@ -9,6 +9,7 @@ import jwt
 import pytest
 
 from api_backend import main
+from api_backend.db import get_storage_object
 from api_backend.util.auth_utils import get_jwt_secret
 
 
@@ -159,6 +160,10 @@ async def test_presign_upload_returns_url(client, storage_clients) -> None:
     assert body["key"].endswith("_report.csv")
     assert public_client.put_requests[0][0] == main.BUCKET
     assert public_client.put_requests[0][3] == {"x-amz-acl": "private"}
+    metadata = get_storage_object(body["key"])
+    assert metadata is not None
+    assert metadata["user_id"] == user_id
+    assert metadata["original_filename"] == "report.csv"
 
 
 @pytest.mark.anyio

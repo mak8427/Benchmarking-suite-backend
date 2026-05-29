@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -96,6 +97,34 @@ def init_db() -> None:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS storage_objects (
+                    object_key TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    original_filename TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    uploaded_at REAL,
+                    processed_at REAL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_workspaces (
+                    user_id TEXT PRIMARY KEY,
+                    grafana_org_id INTEGER,
+                    postgres_role TEXT NOT NULL,
+                    postgres_password TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
             connection.commit()
 
 
@@ -180,6 +209,121 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     if row is None:
         return None
     return dict(row)
+
+
+def record_storage_object(
+    *,
+    object_key: str,
+    user_id: str,
+    username: str,
+    original_filename: str,
+    state: str = "presigned",
+) -> None:
+    """Record ownership metadata for an object key.
+
+    Args:
+        object_key (str): S3 object key.
+        user_id (str): Backend user identifier.
+        username (str): Backend username.
+        original_filename (str): Client-supplied filename before UUID prefixing.
+        state (str): Upload lifecycle state.
+    """
+    with _DB_LOCK:
+        with _connect() as connection:
+            connection.execute(
+                (
+                    "INSERT INTO storage_objects "
+                    "(object_key, user_id, username, original_filename, state, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(object_key) DO UPDATE SET "
+                    "user_id=excluded.user_id, username=excluded.username, "
+                    "original_filename=excluded.original_filename, state=excluded.state"
+                ),
+                (object_key, user_id, username, original_filename, state, time.time()),
+            )
+            connection.commit()
+
+
+def get_storage_object(object_key: str) -> dict[str, Any] | None:
+    """Return stored ownership metadata for an object key."""
+    with _connect() as connection:
+        row = connection.execute(
+            (
+                "SELECT object_key, user_id, username, original_filename, state, "
+                "created_at, uploaded_at, processed_at FROM storage_objects WHERE object_key = ?"
+            ),
+            (object_key,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def mark_storage_object_uploaded(object_key: str) -> None:
+    """Mark an object as uploaded after it is observed in storage."""
+    with _DB_LOCK:
+        with _connect() as connection:
+            connection.execute(
+                "UPDATE storage_objects SET state = 'uploaded', uploaded_at = ? WHERE object_key = ?",
+                (time.time(), object_key),
+            )
+            connection.commit()
+
+
+def mark_storage_object_processed(object_key: str) -> None:
+    """Mark an object as processed by the analysis pipeline."""
+    with _DB_LOCK:
+        with _connect() as connection:
+            connection.execute(
+                "UPDATE storage_objects SET state = 'processed', processed_at = ? WHERE object_key = ?",
+                (time.time(), object_key),
+            )
+            connection.commit()
+
+
+def get_or_create_user_workspace(user_id: str) -> dict[str, Any]:
+    """Return per-user Grafana/Postgres workspace secrets."""
+    role = f"bench_user_{user_id.replace('-', '_')}"
+    with _DB_LOCK:
+        with _connect() as connection:
+            row = connection.execute(
+                (
+                    "SELECT user_id, grafana_org_id, postgres_role, postgres_password, created_at, updated_at "
+                    "FROM user_workspaces WHERE user_id = ?"
+                ),
+                (user_id,),
+            ).fetchone()
+            if row is None:
+                now = time.time()
+                password = secrets.token_urlsafe(32)
+                connection.execute(
+                    (
+                        "INSERT INTO user_workspaces "
+                        "(user_id, grafana_org_id, postgres_role, postgres_password, created_at, updated_at) "
+                        "VALUES (?, NULL, ?, ?, ?, ?)"
+                    ),
+                    (user_id, role, password, now, now),
+                )
+                connection.commit()
+                row = connection.execute(
+                    (
+                        "SELECT user_id, grafana_org_id, postgres_role, postgres_password, created_at, updated_at "
+                        "FROM user_workspaces WHERE user_id = ?"
+                    ),
+                    (user_id,),
+                ).fetchone()
+    return dict(row)
+
+
+def set_user_workspace_grafana_org(user_id: str, grafana_org_id: int) -> None:
+    """Persist the Grafana org id assigned to a backend user."""
+    with _DB_LOCK:
+        with _connect() as connection:
+            connection.execute(
+                "UPDATE user_workspaces SET grafana_org_id = ?, updated_at = ? WHERE user_id = ?",
+                (grafana_org_id, time.time(), user_id),
+            )
+            connection.commit()
 
 
 def create_refresh_token(jti: str, user_id: str, exp: float) -> None:
