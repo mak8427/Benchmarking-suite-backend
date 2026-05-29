@@ -79,14 +79,19 @@ def _validate_runtime_config() -> None:
     if not jwt_secret or jwt_secret == "...":
         warnings.append("JWT_SECRET is missing or using the placeholder value.")
 
-    if not os.getenv("MINIO_ACCESS_KEY"):
-        warnings.append("MINIO_ACCESS_KEY is not set.")
-    if not os.getenv("MINIO_SECRET_KEY"):
-        warnings.append("MINIO_SECRET_KEY is not set.")
-    if not (os.getenv("MINIO_PUBLIC_ENDPOINT") or os.getenv("MINIO_ADMIN_ENDPOINT")):
-        warnings.append("MINIO_PUBLIC_ENDPOINT or MINIO_ADMIN_ENDPOINT is not set.")
-    if not os.getenv("MINIO_BUCKET"):
-        warnings.append("MINIO_BUCKET is not set (default will be used).")
+    if not (os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ACCESS_KEY")):
+        warnings.append("S3_ACCESS_KEY_ID/AWS_ACCESS_KEY_ID is not set.")
+    if not (os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("MINIO_SECRET_KEY")):
+        warnings.append("S3_SECRET_ACCESS_KEY/AWS_SECRET_ACCESS_KEY is not set.")
+    if not (
+        os.getenv("S3_ENDPOINT_URL")
+        or os.getenv("AWS_ENDPOINT_URL")
+        or os.getenv("MINIO_PUBLIC_ENDPOINT")
+        or os.getenv("MINIO_ADMIN_ENDPOINT")
+    ):
+        warnings.append("S3_ENDPOINT_URL is not set (default https://s3.gwdg.de will be used).")
+    if not (os.getenv("S3_BUCKET") or os.getenv("MINIO_BUCKET")):
+        warnings.append("S3_BUCKET is not set (default benchmarking-suite will be used).")
 
     global _CONFIG_WARNINGS
     _CONFIG_WARNINGS = warnings

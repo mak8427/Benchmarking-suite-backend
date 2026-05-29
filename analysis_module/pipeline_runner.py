@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 import duckdb
-from minio.error import S3Error
 
 from analysis_module.connectors.db import setup_duckdb_with_postgres
 from analysis_module.connectors.discovery import discover_h5_files
@@ -132,7 +131,7 @@ def run_pipeline() -> None:
     try:
         for b in minio_client.list_buckets():
             logger.info("Bucket detected: %s", b.name)
-    except S3Error as exc:
+    except Exception as exc:  # noqa: BLE001
         raise RuntimeError("Unable to list buckets - verify access key/secret pair.") from exc
 
     logger.info("Step 1/4: validating configuration and preparing directories.")

@@ -3,6 +3,7 @@ fastapi
 passlib
 pydantic
 minio
+boto3
 httpx
 duckdb
 h5py

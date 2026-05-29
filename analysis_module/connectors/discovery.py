@@ -5,9 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import List, Tuple
-
-from minio import Minio
+from typing import Any, List, Tuple
 
 from analysis_module.connectors.minio import download_minio_object, list_minio_objects
 from analysis_module.pipeline_core import PipelineConfig, collect_h5_files
@@ -16,7 +14,7 @@ from analysis_module.pipeline_core import PipelineConfig, collect_h5_files
 def discover_h5_files(
     config: PipelineConfig,
     *,
-    minio_client: Minio,
+    minio_client: Any,
     minio_settings: dict[str, str | bool],
     logger,
 ) -> List[Tuple[str, Path]]:
@@ -24,7 +22,7 @@ def discover_h5_files(
 
     Args:
         config (PipelineConfig): Pipeline configuration.
-        minio_client (Minio): MinIO client for remote discovery.
+        minio_client: S3-compatible client for remote discovery.
         minio_settings (dict[str, str | bool]): MinIO connection settings.
         logger: Logger for diagnostics.
 
@@ -48,7 +46,7 @@ def discover_h5_files(
             minio_settings["prefix"],
             logger=logger,
         )
-        if os.getenv("MINIO_SYNC")
+        if os.getenv("S3_SYNC") or os.getenv("MINIO_SYNC")
         else []
     )
 

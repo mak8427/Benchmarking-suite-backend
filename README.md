@@ -2,7 +2,7 @@
 
 This repository contains two Python services:
 
-- `api_backend/` - external FastAPI API for authentication and MinIO presign flows.
+- `api_backend/` - external FastAPI API for authentication and S3 presign flows.
 - `analysis_module/` - batch + event-driven analysis pipeline for `.h5` job artifacts.
 
 ## Quickstart
@@ -19,9 +19,17 @@ Set required secrets before running:
 
 ```bash
 export JWT_SECRET='replace-me'
-export MINIO_ACCESS_KEY='...'
-export MINIO_SECRET_KEY='...'
+export S3_ENDPOINT_URL='https://s3.gwdg.de'
+export S3_BUCKET='benchmarking-suite'
+export S3_ACCESS_KEY_ID='...'
+export S3_SECRET_ACCESS_KEY='...'
+export S3_ADDRESSING_STYLE='path'
 ```
+
+Legacy `MINIO_*` variables are still accepted as compatibility aliases during
+the transition from local MinIO to GWDG S3. See
+[`docs/backend_maintenance.md`](docs/backend_maintenance.md) for deployment,
+validation, restart, and MinIO cleanup procedures.
 
 ## API Backend
 
@@ -62,7 +70,7 @@ Event listener:
 uvicorn analysis_module.minio_listener:app --host 0.0.0.0 --port 8001
 ```
 
-The listener accepts MinIO notifications on:
+The listener accepts legacy MinIO-style notifications on:
 
 - `POST /minio-event` (primary)
 - `POST /minio` (legacy)
