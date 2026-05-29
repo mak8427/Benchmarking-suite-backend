@@ -4,6 +4,7 @@ Helpers for reading HDF5 datasets into Polars DataFrames.
 
 from __future__ import annotations
 
+import re
 from typing import Iterable, Iterator, List, Tuple
 
 import h5py
@@ -91,8 +92,15 @@ def sanitize_parts(parts: Iterable[str]) -> str:
     Examples:
         >>> sanitize_parts(["a/b", "c"])
         'a_b__c'
+        >>> sanitize_parts(["user-id/file.name.h5"])
+        'user_id_file_name_h5'
     """
-    return "__".join(part.replace("/", "_") for part in parts)
+    sanitized = []
+    for part in parts:
+        cleaned = re.sub(r"[^0-9A-Za-z_]+", "_", part.replace("/", "_"))
+        cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+        sanitized.append(cleaned or "unnamed")
+    return "__".join(sanitized)
 
 
 def dataset_prefix(path_parts: List[str]) -> str:
