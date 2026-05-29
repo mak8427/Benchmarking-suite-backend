@@ -16,7 +16,10 @@ from typing import Any
 import duckdb
 import httpx
 
-from api_backend.db import get_or_create_user_workspace, set_user_workspace_grafana_org
+try:
+    from api_backend.db import get_or_create_user_workspace, set_user_workspace_grafana_org
+except ModuleNotFoundError:  # pragma: no cover - supports running from api_backend/
+    from db import get_or_create_user_workspace, set_user_workspace_grafana_org  # type: ignore[no-redef]
 
 
 @dataclass(frozen=True)
