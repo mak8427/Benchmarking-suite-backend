@@ -216,7 +216,7 @@ def validate_source(config: PipelineConfig) -> None:
         ...     cfg = PipelineConfig(base, base / "missing", base / "out", base / "stats", base / "summary", base / "price", base / "run.log", False, PriceSettings(1, "DE-LU", "quarterhour"), True)
         ...     validate_source(cfg)
     """
-    if config.allow_missing_source or os.getenv("MINIO_SYNC"):
+    if config.allow_missing_source or os.getenv("S3_SYNC") or os.getenv("MINIO_SYNC"):
         return
     if not config.source_dir.exists():
         raise FileNotFoundError(f"Source directory not found: {config.source_dir}")

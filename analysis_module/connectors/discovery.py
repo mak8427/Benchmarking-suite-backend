@@ -38,7 +38,7 @@ def discover_h5_files(
     """
     logger.info("Step 2/4: discovering input HDF5 files under %s.", config.source_dir)
     step_start = time.perf_counter()
-    local_files = collect_h5_files(config)
+    local_files = collect_h5_files(config, keep_batch_files=False)
     remote_names = (
         list_minio_objects(
             minio_client,
