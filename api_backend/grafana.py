@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from hashlib import sha256
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +57,11 @@ class GrafanaProvisioner:
     def __init__(self, settings: GrafanaSettings | None = None, client: httpx.Client | None = None) -> None:
         self.settings = settings or resolve_grafana_settings()
         self.client = client or httpx.Client(timeout=15.0)
+
+    @staticmethod
+    def datasource_uid(user_id: str) -> str:
+        """Return a stable Grafana-safe datasource UID for a backend user."""
+        return f"benchpg-{sha256(user_id.encode('utf-8')).hexdigest()[:20]}"
 
     @property
     def enabled(self) -> bool:
@@ -126,7 +132,7 @@ class GrafanaProvisioner:
         workspace = get_or_create_user_workspace(user_id)
         datasource = {
             "name": "My Benchmark Data",
-            "uid": f"bench-postgres-{user_id}",
+            "uid": self.datasource_uid(user_id),
             "type": "postgres",
             "access": "proxy",
             "url": f"{self.settings.postgres_host}:{self.settings.postgres_port}",
@@ -149,7 +155,7 @@ class GrafanaProvisioner:
 
     def ensure_dashboard(self, *, user_id: str, org_id: int) -> None:
         """Create or update a starter benchmark dashboard for the user org."""
-        datasource_uid = f"bench-postgres-{user_id}"
+        datasource_uid = self.datasource_uid(user_id)
         dashboard = {
             "uid": "my-benchmark-data",
             "title": "My Benchmark Data",
