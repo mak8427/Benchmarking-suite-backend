@@ -607,7 +607,10 @@ async def grafana_logout() -> Response:
 @app.get("/grafana-auth/verify", include_in_schema=False)
 async def grafana_auth_proxy(request: Request) -> Response:
     """Traefik forward-auth endpoint that emits Grafana auth-proxy headers."""
-    user = _decode_grafana_session(request.cookies.get(GRAFANA_SESSION_COOKIE))
+    try:
+        user = _decode_grafana_session(request.cookies.get(GRAFANA_SESSION_COOKIE))
+    except HTTPException:
+        return RedirectResponse(url="/grafana-auth/login", status_code=status.HTTP_303_SEE_OTHER)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.headers["X-WEBAUTH-USER"] = user["username"]
     response.headers["X-WEBAUTH-NAME"] = user["username"]

@@ -51,6 +51,7 @@ async def test_grafana_verify_emits_auth_proxy_headers(client) -> None:
 
 
 async def test_grafana_verify_rejects_missing_cookie(client) -> None:
-    """Grafana forward-auth should reject anonymous requests."""
-    response = await client.get("/grafana-auth/verify")
-    assert response.status_code == 401
+    """Anonymous browser requests should be sent to the backend login page."""
+    response = await client.get("/grafana-auth/verify", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/grafana-auth/login"
