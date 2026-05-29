@@ -557,8 +557,12 @@ async def refresh(
 @app.get("/grafana-auth/login", response_class=HTMLResponse, include_in_schema=False)
 async def grafana_login_form() -> HTMLResponse:
     """Return a minimal backend-authenticated Grafana login form."""
-    return HTMLResponse(
-        """
+    return HTMLResponse(_grafana_login_html())
+
+
+def _grafana_login_html() -> str:
+    """Return the shared backend-authenticated Grafana login form."""
+    return """
         <!doctype html>
         <html><head><title>Benchmarking Suite Login</title></head>
         <body>
@@ -569,7 +573,6 @@ async def grafana_login_form() -> HTMLResponse:
           </form>
         </body></html>
         """
-    )
 
 
 @app.post("/grafana-auth/login", include_in_schema=False)
@@ -610,7 +613,7 @@ async def grafana_auth_proxy(request: Request) -> Response:
     try:
         user = _decode_grafana_session(request.cookies.get(GRAFANA_SESSION_COOKIE))
     except HTTPException:
-        return RedirectResponse(url="/grafana-auth/login", status_code=status.HTTP_303_SEE_OTHER)
+        return HTMLResponse(_grafana_login_html(), status_code=status.HTTP_401_UNAUTHORIZED)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.headers["X-WEBAUTH-USER"] = user["username"]
     response.headers["X-WEBAUTH-NAME"] = user["username"]
