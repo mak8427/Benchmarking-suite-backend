@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import duckdb
 import polars as pl
+import psycopg
+from psycopg import errors
 
 from api_backend.db import get_storage_object, mark_storage_object_processed
 
@@ -58,36 +61,41 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
-    con.execute("ALTER TABLE pg.public.benchmark_jobs ENABLE ROW LEVEL SECURITY;")
-    con.execute("ALTER TABLE pg.public.benchmark_samples ENABLE ROW LEVEL SECURITY;")
-    con.execute(
-        """
-        DO $$
-        DECLARE
-            role_record RECORD;
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_policies
-                WHERE schemaname = 'public' AND tablename = 'benchmark_jobs' AND policyname = 'benchmark_jobs_owner'
-            ) THEN
-                CREATE POLICY benchmark_jobs_owner ON public.benchmark_jobs
-                USING (owner_user_id = current_setting('app.user_id', true));
-            END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_policies
-                WHERE schemaname = 'public' AND tablename = 'benchmark_samples' AND policyname = 'benchmark_samples_owner'
-            ) THEN
-                CREATE POLICY benchmark_samples_owner ON public.benchmark_samples
-                USING (owner_user_id = current_setting('app.user_id', true));
-            END IF;
-            FOR role_record IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'bench_user_%' LOOP
-                EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', role_record.rolname);
-                EXECUTE format('GRANT SELECT ON public.benchmark_jobs TO %I', role_record.rolname);
-                EXECUTE format('GRANT SELECT ON public.benchmark_samples TO %I', role_record.rolname);
-            END LOOP;
-        END $$;
-        """
-    )
+    apply_postgres_security()
+
+
+def apply_postgres_security() -> None:
+    """Apply RLS policies and grants using a direct PostgreSQL connection."""
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not password:
+        return
+    with psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=password,
+        autocommit=True,
+    ) as connection:
+        connection.execute("ALTER TABLE public.benchmark_jobs ENABLE ROW LEVEL SECURITY")
+        connection.execute("ALTER TABLE public.benchmark_samples ENABLE ROW LEVEL SECURITY")
+        for policy, table_name in (
+            ("benchmark_jobs_owner", "benchmark_jobs"),
+            ("benchmark_samples_owner", "benchmark_samples"),
+        ):
+            try:
+                connection.execute(
+                    f"CREATE POLICY {policy} ON public.{table_name} "
+                    "USING (owner_user_id = current_setting('app.user_id', true))"
+                )
+            except errors.DuplicateObject:
+                pass
+        roles = connection.execute("SELECT rolname FROM pg_roles WHERE rolname LIKE 'bench_user_%'").fetchall()
+        for (role,) in roles:
+            safe_role = '"' + role.replace('"', '""') + '"'
+            connection.execute(f"GRANT USAGE ON SCHEMA public TO {safe_role}")
+            connection.execute(f"GRANT SELECT ON public.benchmark_jobs TO {safe_role}")
+            connection.execute(f"GRANT SELECT ON public.benchmark_samples TO {safe_role}")
 
 
 def _first_existing(df: pl.DataFrame, candidates: list[str]) -> str | None:

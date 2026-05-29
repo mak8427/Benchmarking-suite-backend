@@ -13,8 +13,8 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-import duckdb
 import httpx
+import psycopg
 
 try:
     from api_backend.db import get_or_create_user_workspace, set_user_workspace_grafana_org
@@ -224,32 +224,21 @@ class GrafanaProvisioner:
         password = workspace["postgres_password"].replace("'", "''")
         safe_role = '"' + role.replace('"', '""') + '"'
         user_literal = user_id.replace("'", "''")
-        conn_str = (
-            f"host={self.settings.postgres_host} port={self.settings.postgres_port} "
-            f"dbname={self.settings.postgres_db} user={self.settings.postgres_admin_user} "
-            f"password={self.settings.postgres_admin_password}"
-        ).replace("'", "''")
-        con = duckdb.connect()
-        con.execute("INSTALL postgres;")
-        con.execute("LOAD postgres;")
-        con.execute(f"ATTACH '{conn_str}' AS pg (TYPE postgres);")
-        con.execute(
-            f"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                    CREATE ROLE {safe_role} LOGIN PASSWORD '{password}';
-                ELSE
-                    ALTER ROLE {safe_role} WITH PASSWORD '{password}';
-                END IF;
-                ALTER ROLE {safe_role} SET app.user_id = '{user_literal}';
-                GRANT USAGE ON SCHEMA public TO {safe_role};
-                IF to_regclass('public.benchmark_jobs') IS NOT NULL THEN
-                    GRANT SELECT ON public.benchmark_jobs TO {safe_role};
-                END IF;
-                IF to_regclass('public.benchmark_samples') IS NOT NULL THEN
-                    GRANT SELECT ON public.benchmark_samples TO {safe_role};
-                END IF;
-            END $$;
-            """
-        )
+        with psycopg.connect(
+            host=self.settings.postgres_host,
+            port=self.settings.postgres_port,
+            dbname=self.settings.postgres_db,
+            user=self.settings.postgres_admin_user,
+            password=self.settings.postgres_admin_password,
+            autocommit=True,
+        ) as connection:
+            exists = connection.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone()
+            if exists:
+                connection.execute(f"ALTER ROLE {safe_role} WITH PASSWORD '{password}'")
+            else:
+                connection.execute(f"CREATE ROLE {safe_role} LOGIN PASSWORD '{password}'")
+            connection.execute(f"ALTER ROLE {safe_role} SET app.user_id = '{user_literal}'")
+            connection.execute(f"GRANT USAGE ON SCHEMA public TO {safe_role}")
+            for table_name in ("benchmark_jobs", "benchmark_samples"):
+                if connection.execute("SELECT to_regclass(%s)", (f"public.{table_name}",)).fetchone()[0]:
+                    connection.execute(f"GRANT SELECT ON public.{table_name} TO {safe_role}")
