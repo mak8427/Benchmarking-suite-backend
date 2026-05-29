@@ -127,6 +127,22 @@ class GrafanaProvisioner:
         if response.status_code not in {200, 409}:
             response.raise_for_status()
 
+    def select_user_org(self, *, grafana_user_id: int, org_id: int) -> None:
+        """Make the user's private organization their active Grafana org."""
+        self._request("POST", f"/api/users/{grafana_user_id}/using/{org_id}")
+
+    def remove_main_org_membership(self, *, grafana_user_id: int, org_id: int) -> None:
+        """Remove the default Main Org membership after private org setup."""
+        if org_id == 1:
+            return
+        response = self.client.delete(
+            f"{self.settings.url}/api/orgs/1/users/{grafana_user_id}",
+            auth=(self.settings.admin_user or "", self.settings.admin_password or ""),
+            timeout=15.0,
+        )
+        if response.status_code not in {200, 404}:
+            response.raise_for_status()
+
     def ensure_postgres_datasource(self, *, user_id: str, username: str, org_id: int) -> None:
         """Create or update the user's Grafana Postgres datasource."""
         workspace = get_or_create_user_workspace(user_id)
@@ -216,8 +232,10 @@ class GrafanaProvisioner:
         self.ensure_postgres_role(user_id=user_id, workspace=workspace)
         org_id = self.ensure_org(username)
         set_user_workspace_grafana_org(user_id, org_id)
-        self.ensure_user(username)
+        grafana_user_id = self.ensure_user(username)
         self.ensure_user_membership(username=username, org_id=org_id)
+        self.select_user_org(grafana_user_id=grafana_user_id, org_id=org_id)
+        self.remove_main_org_membership(grafana_user_id=grafana_user_id, org_id=org_id)
         self.ensure_postgres_datasource(user_id=user_id, username=username, org_id=org_id)
         self.ensure_dashboard(user_id=user_id, org_id=org_id)
         return True
