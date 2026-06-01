@@ -229,3 +229,4 @@ order by measured_at desc nulls last;
 - Consider a materialized `benchmark_job_summaries` table for canonical per-job stats instead of repeating ranking SQL in Grafana.
 - Keep IO500 excluded from benchmark correctness work until it is explicitly reintroduced.
 - Replace FastAPI `on_event` startup hooks with lifespan handlers when touching application startup.
+- Review `analysis_module/Dockerfile` and `analysis_module/duckdb-job.yaml` before using Kubernetes processing; they are older than the current `analysis_module.duckdb_analysis` batch entry point.
