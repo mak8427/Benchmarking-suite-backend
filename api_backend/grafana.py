@@ -216,18 +216,22 @@ class GrafanaProvisioner:
                 {
                     "id": 2,
                     "type": "stat",
-                    "title": "Total Energy",
+                    "title": "Median Peak Power",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
                     "targets": [
                         {
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j from benchmark_jobs",
+                            "rawSql": (
+                                "select coalesce(percentile_cont(0.5) within group "
+                                "(order by max_power_w), 0)::double precision as median_peak_power_w "
+                                "from benchmark_jobs where max_power_w is not null"
+                            ),
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
+                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
                     "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
                 },
                 {
