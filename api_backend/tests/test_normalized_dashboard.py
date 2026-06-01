@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from api_backend.db import record_storage_object
-from analysis_module.connectors.normalized import build_dashboard_samples, infer_owner_metadata
+from analysis_module.connectors.normalized import build_dashboard_samples, derive_job_metadata, infer_owner_metadata
 
 
 def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
@@ -55,3 +55,12 @@ def test_build_dashboard_samples_extracts_common_metrics() -> None:
         "cpu_utilization",
     ]
     assert samples.to_dicts()[1]["energy_used_j"] == 20.0
+
+
+def test_derive_job_metadata_from_hdf5_filename() -> None:
+    """Job id and compute node should come from the uploaded filename."""
+    assert derive_job_metadata("14001040_0_agq007.h5") == {
+        "job_id": "14001040",
+        "compute_node": "agq007",
+        "benchmark_name": "unknown",
+    }

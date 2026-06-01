@@ -66,6 +66,23 @@ def compute_energy_profile(
         return df, None
 
     df = df.with_columns(pl.col("ElapsedTime").cast(pl.Float64))
+    before_rows = df.height
+    df = df.filter((pl.col("ElapsedTime") >= 0) & (pl.col("ElapsedTime") < 10_000_000))
+    dropped_rows = before_rows - df.height
+    if dropped_rows:
+        logger.warning(
+            "Dropped %d invalid elapsed-time row(s) for job=%s group=%s before energy integration.",
+            dropped_rows,
+            job_id,
+            group_name,
+        )
+    if df.is_empty():
+        logger.warning(
+            "No valid elapsed-time rows for job=%s group=%s; skipping energy metrics.",
+            job_id,
+            group_name,
+        )
+        return df, None
 
     if power_column:
         logger.info(

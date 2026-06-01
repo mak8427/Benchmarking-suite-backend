@@ -43,10 +43,24 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             sample_count BIGINT NOT NULL,
             max_power_w DOUBLE PRECISION,
             total_energy_j DOUBLE PRECISION,
-            max_elapsed_time_s DOUBLE PRECISION
+            max_elapsed_time_s DOUBLE PRECISION,
+            median_power_w DOUBLE PRECISION,
+            job_id TEXT,
+            compute_node TEXT,
+            benchmark_name TEXT
         );
         """
     )
+    for column_name, column_type in (
+        ("median_power_w", "DOUBLE PRECISION"),
+        ("job_id", "TEXT"),
+        ("compute_node", "TEXT"),
+        ("benchmark_name", "TEXT"),
+    ):
+        try:
+            con.execute(f"ALTER TABLE pg.public.benchmark_jobs ADD COLUMN {column_name} {column_type}")
+        except Exception:
+            pass
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS pg.public.benchmark_samples (
@@ -105,6 +119,21 @@ def _first_existing(df: pl.DataFrame, candidates: list[str]) -> str | None:
     return None
 
 
+def derive_job_metadata(original_filename: str) -> dict[str, str]:
+    """Derive stable job metadata from the uploaded HDF5 filename.
+
+    The current CLI sync does not upload benchmark names as metadata, so the
+    benchmark is intentionally marked unknown instead of guessed.
+    """
+    stem = Path(original_filename).stem
+    parts = stem.split("_")
+    return {
+        "job_id": parts[0] if parts else stem,
+        "compute_node": parts[-1] if len(parts) >= 3 else "unknown",
+        "benchmark_name": "unknown",
+    }
+
+
 def build_dashboard_samples(df: pl.DataFrame, metadata: dict[str, str]) -> pl.DataFrame:
     """Convert a processed dataframe into stable dashboard sample rows."""
     elapsed = _first_existing(df, ["ElapsedTime"])
@@ -144,14 +173,18 @@ def write_dashboard_tables(
     """Write normalized job and sample rows for Grafana dashboards."""
     metadata = infer_owner_metadata(file_label)
     samples = build_dashboard_samples(df, metadata)
+    ensure_normalized_schema(con)
+    con.execute("DELETE FROM pg.public.benchmark_samples WHERE object_key = ?", [metadata["object_key"]])
+    con.execute("DELETE FROM pg.public.benchmark_jobs WHERE object_key = ?", [metadata["object_key"]])
     if samples.is_empty():
         logger.warning("Skipping normalized dashboard rows for %s: no sample columns", file_label)
         return
 
-    ensure_normalized_schema(con)
+    job_metadata = derive_job_metadata(metadata["original_filename"])
     summary = samples.select(
         pl.len().cast(pl.Int64).alias("sample_count"),
         pl.col("node_power").max().alias("max_power_w"),
+        pl.col("node_power").median().alias("median_power_w"),
         pl.col("energy_used_j").max().alias("total_energy_j"),
         pl.col("elapsed_time").max().alias("max_elapsed_time_s"),
     ).to_dicts()[0]
@@ -163,20 +196,22 @@ def write_dashboard_tables(
             "original_filename": [metadata["original_filename"]],
             "sample_count": [summary["sample_count"]],
             "max_power_w": [summary["max_power_w"]],
+            "median_power_w": [summary["median_power_w"]],
             "total_energy_j": [summary["total_energy_j"]],
             "max_elapsed_time_s": [summary["max_elapsed_time_s"]],
+            "job_id": [job_metadata["job_id"]],
+            "compute_node": [job_metadata["compute_node"]],
+            "benchmark_name": [job_metadata["benchmark_name"]],
         }
     )
 
     con.register("dashboard_jobs", jobs)
     con.register("dashboard_samples", samples)
-    con.execute("DELETE FROM pg.public.benchmark_samples WHERE object_key = ?", [metadata["object_key"]])
-    con.execute("DELETE FROM pg.public.benchmark_jobs WHERE object_key = ?", [metadata["object_key"]])
     con.execute(
         """
         INSERT INTO pg.public.benchmark_jobs
-        (object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, total_energy_j, max_elapsed_time_s)
-        SELECT object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, total_energy_j, max_elapsed_time_s
+        (object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name)
+        SELECT object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name
         FROM dashboard_jobs;
         """
     )

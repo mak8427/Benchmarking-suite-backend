@@ -211,7 +211,7 @@ class GrafanaProvisioner:
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select count(*)::bigint as processed_jobs from benchmark_jobs",
+                            "rawSql": "select count(distinct job_id)::bigint as processed_jobs from benchmark_jobs",
                             "rawQuery": True,
                         }
                     ],
@@ -221,39 +221,35 @@ class GrafanaProvisioner:
                 {
                     "id": 2,
                     "type": "stat",
-                    "title": "Median Peak Power",
+                    "title": "Total Energy",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
                     "targets": [
                         {
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": (
-                                "select coalesce(percentile_cont(0.5) within group "
-                                "(order by max_power_w), 0)::double precision as median_peak_power_w "
-                                "from benchmark_jobs where max_power_w is not null"
-                            ),
+                            "rawSql": "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j from benchmark_jobs",
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
+                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
                     "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
                 },
                 {
                     "id": 3,
                     "type": "stat",
-                    "title": "Peak Power",
+                    "title": "Cluster Time",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
                     "targets": [
                         {
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select coalesce(max(max_power_w), 0)::double precision as peak_power_w from benchmark_jobs",
+                            "rawSql": "select coalesce(sum(max_elapsed_time_s), 0)::double precision as cluster_time_s from benchmark_jobs",
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
+                    "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
                     "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
                 },
                 {
@@ -267,8 +263,9 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select processed_at as time, original_filename, sample_count, max_power_w, "
-                                "total_energy_j, max_elapsed_time_s from benchmark_jobs order by processed_at desc"
+                                "select processed_at as time, job_id, benchmark_name, compute_node, original_filename, "
+                                "sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s "
+                                "from benchmark_jobs order by processed_at desc"
                             ),
                             "rawQuery": True,
                         }
