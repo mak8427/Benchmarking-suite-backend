@@ -30,6 +30,7 @@ def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
         user_id="user-1",
         username="alice",
         original_filename="file.h5",
+        benchmark_name="stream_triad",
     )
 
     metadata = infer_owner_metadata(key)
@@ -39,6 +40,7 @@ def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
         "owner_username": "alice",
         "object_key": key,
         "original_filename": "file.h5",
+        "benchmark_name": "stream_triad",
     }
 
 
@@ -76,7 +78,6 @@ def test_derive_job_metadata_from_hdf5_filename() -> None:
     assert derive_job_metadata("14001040_0_agq007.h5") == {
         "job_id": "14001040",
         "compute_node": "agq007",
-        "benchmark_name": "unknown",
     }
 
 

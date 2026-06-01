@@ -104,6 +104,7 @@ def init_db() -> None:
                     user_id TEXT NOT NULL,
                     username TEXT NOT NULL,
                     original_filename TEXT NOT NULL,
+                    benchmark_name TEXT,
                     state TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     uploaded_at REAL,
@@ -112,6 +113,10 @@ def init_db() -> None:
                 )
                 """
             )
+            try:
+                connection.execute("ALTER TABLE storage_objects ADD COLUMN benchmark_name TEXT")
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS user_workspaces (
@@ -217,6 +222,7 @@ def record_storage_object(
     user_id: str,
     username: str,
     original_filename: str,
+    benchmark_name: str | None = None,
     state: str = "presigned",
 ) -> None:
     """Record ownership metadata for an object key.
@@ -226,20 +232,26 @@ def record_storage_object(
         user_id (str): Backend user identifier.
         username (str): Backend username.
         original_filename (str): Client-supplied filename before UUID prefixing.
+        benchmark_name (str | None): Optional benchmark name supplied by the CLI.
         state (str): Upload lifecycle state.
     """
     with _DB_LOCK:
         with _connect() as connection:
+            try:
+                connection.execute("ALTER TABLE storage_objects ADD COLUMN benchmark_name TEXT")
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 (
                     "INSERT INTO storage_objects "
-                    "(object_key, user_id, username, original_filename, state, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "(object_key, user_id, username, original_filename, benchmark_name, state, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(object_key) DO UPDATE SET "
                     "user_id=excluded.user_id, username=excluded.username, "
-                    "original_filename=excluded.original_filename, state=excluded.state"
+                    "original_filename=excluded.original_filename, "
+                    "benchmark_name=excluded.benchmark_name, state=excluded.state"
                 ),
-                (object_key, user_id, username, original_filename, state, time.time()),
+                (object_key, user_id, username, original_filename, benchmark_name, state, time.time()),
             )
             connection.commit()
 
@@ -249,7 +261,7 @@ def get_storage_object(object_key: str) -> dict[str, Any] | None:
     with _connect() as connection:
         row = connection.execute(
             (
-                "SELECT object_key, user_id, username, original_filename, state, "
+                "SELECT object_key, user_id, username, original_filename, benchmark_name, state, "
                 "created_at, uploaded_at, processed_at FROM storage_objects WHERE object_key = ?"
             ),
             (object_key,),

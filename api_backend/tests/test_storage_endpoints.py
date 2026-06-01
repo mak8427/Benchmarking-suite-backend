@@ -148,7 +148,7 @@ async def test_presign_upload_returns_url(client, storage_clients) -> None:
 
     response = await client.post(
         "/files/presign/upload",
-        params={"filename": "report.csv"},
+        params={"filename": "report.csv", "benchmark_name": "stream_triad"},
         headers={"Authorization": f"Bearer {access}"},
     )
 
@@ -164,6 +164,7 @@ async def test_presign_upload_returns_url(client, storage_clients) -> None:
     assert metadata is not None
     assert metadata["user_id"] == user_id
     assert metadata["original_filename"] == "report.csv"
+    assert metadata["benchmark_name"] == "stream_triad"
 
 
 @pytest.mark.anyio

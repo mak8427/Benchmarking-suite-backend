@@ -527,6 +527,7 @@ async def refresh(
 @app.post("/files/presign/upload")
 async def create_upload_url(
     filename: str = Query(..., description="Name of file to upload."),
+    benchmark_name: str | None = Query(None, description="Benchmark that produced the file."),
     user: dict[str, str] = Depends(current_user),
 ) -> PresignResponse:
     """Create a presigned upload URL for an authenticated user.
@@ -551,6 +552,7 @@ async def create_upload_url(
         user_id=user["user_id"],
         username=user["username"],
         original_filename=filename,
+        benchmark_name=benchmark_name,
     )
     try:
         return _presign_upload(key, minio_client)
@@ -565,6 +567,7 @@ async def create_upload_url(
 async def create_upload_url_legacy(
     response: Response,
     object_name: str = Query(..., description="Legacy object name field."),
+    benchmark_name: str | None = Query(None, description="Benchmark that produced the file."),
     user: dict[str, str] = Depends(current_user),
 ) -> PresignResponse:
     """Backward-compatible upload route.
@@ -583,7 +586,7 @@ async def create_upload_url_legacy(
     """
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT"
-    return await create_upload_url(filename=object_name, user=user)
+    return await create_upload_url(filename=object_name, benchmark_name=benchmark_name, user=user)
 
 
 @app.get("/files/presign/download")

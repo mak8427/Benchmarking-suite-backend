@@ -27,6 +27,7 @@ def infer_owner_metadata(file_label: str) -> dict[str, str]:
         "owner_username": stored.get("username", "unknown") if stored else "unknown",
         "object_key": object_key,
         "original_filename": stored.get("original_filename", Path(file_label).name) if stored else Path(file_label).name,
+        "benchmark_name": stored.get("benchmark_name") or "unknown" if stored else "unknown",
     }
 
 
@@ -193,7 +194,6 @@ def derive_job_metadata(original_filename: str) -> dict[str, str]:
     return {
         "job_id": parts[0] if parts else stem,
         "compute_node": parts[-1] if len(parts) >= 3 else "unknown",
-        "benchmark_name": "unknown",
     }
 
 
@@ -265,7 +265,7 @@ def write_dashboard_tables(
             "max_elapsed_time_s": [summary["max_elapsed_time_s"]],
             "job_id": [job_metadata["job_id"]],
             "compute_node": [job_metadata["compute_node"]],
-            "benchmark_name": [job_metadata["benchmark_name"]],
+            "benchmark_name": [metadata["benchmark_name"]],
         }
     )
 
