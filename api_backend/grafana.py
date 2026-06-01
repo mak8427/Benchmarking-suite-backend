@@ -119,15 +119,29 @@ class GrafanaProvisioner:
         )
         return int(response.json()["id"])
 
-    def ensure_user_membership(self, *, username: str, org_id: int) -> None:
-        """Add a Grafana user to their own org as Viewer."""
+    def ensure_user_membership(self, *, username: str, grafana_user_id: int, org_id: int) -> None:
+        """Add a Grafana user to their own org as Editor.
+
+        Editors can adjust panels and inspect SQL inside their private org, but
+        the datasource still connects through a per-user read-only Postgres role
+        protected by row-level security.
+        """
         response = self.client.post(
             f"{self.settings.url}/api/orgs/{org_id}/users",
             auth=(self.settings.admin_user or "", self.settings.admin_password or ""),
-            json={"loginOrEmail": username, "role": "Viewer"},
+            json={"loginOrEmail": username, "role": "Editor"},
             timeout=15.0,
         )
-        if response.status_code not in {200, 409}:
+        if response.status_code == 409:
+            update = self.client.patch(
+                f"{self.settings.url}/api/orgs/{org_id}/users/{grafana_user_id}",
+                auth=(self.settings.admin_user or "", self.settings.admin_password or ""),
+                json={"role": "Editor"},
+                timeout=15.0,
+            )
+            update.raise_for_status()
+            return
+        if response.status_code != 200:
             response.raise_for_status()
 
     def select_user_org(self, *, grafana_user_id: int, org_id: int) -> None:
@@ -180,40 +194,128 @@ class GrafanaProvisioner:
             "title": "My Benchmark Data",
             "schemaVersion": 39,
             "version": 1,
+            "time": {"from": "now-30d", "to": "now"},
             "panels": [
                 {
                     "id": 1,
-                    "type": "table",
+                    "type": "stat",
                     "title": "Processed Jobs",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
                     "targets": [
                         {
                             "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": (
-                                "select original_filename, sample_count, max_power_w, total_energy_j, "
-                                "max_elapsed_time_s, processed_at from benchmark_jobs order by processed_at desc"
-                            ),
+                            "rawSql": "select count(*)::bigint as processed_jobs from benchmark_jobs",
+                            "rawQuery": True,
                         }
                     ],
-                    "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+                    "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                    "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
                 },
                 {
                     "id": 2,
+                    "type": "stat",
+                    "title": "Total Energy",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j from benchmark_jobs",
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
+                    "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+                },
+                {
+                    "id": 3,
+                    "type": "stat",
+                    "title": "Peak Power",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": "select coalesce(max(max_power_w), 0)::double precision as peak_power_w from benchmark_jobs",
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
+                    "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+                },
+                {
+                    "id": 4,
+                    "type": "table",
+                    "title": "Recent Jobs",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select processed_at as time, original_filename, sample_count, max_power_w, "
+                                "total_energy_j, max_elapsed_time_s from benchmark_jobs order by processed_at desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {
+                        "defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}},
+                        "overrides": [],
+                    },
+                    "options": {"showHeader": True},
+                    "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+                },
+                {
+                    "id": 5,
                     "type": "timeseries",
                     "title": "Node Power",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
                     "targets": [
                         {
                             "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "time_series",
                             "rawSql": (
-                                "select to_timestamp(epoch_time) as time, node_power as value "
-                                "from benchmark_samples where epoch_time is not null order by epoch_time"
+                                "select to_timestamp(s.epoch_time) as time, j.original_filename as metric, "
+                                "avg(s.node_power)::double precision as value "
+                                "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
+                                "where s.epoch_time is not null and s.node_power is not null "
+                                "group by 1, 2 order by 1"
                             ),
+                            "rawQuery": True,
                         }
                     ],
-                    "gridPos": {"h": 10, "w": 24, "x": 0, "y": 10},
+                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
+                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 12},
+                },
+                {
+                    "id": 6,
+                    "type": "timeseries",
+                    "title": "Cumulative Energy",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "time_series",
+                            "rawSql": (
+                                "select to_timestamp(s.epoch_time) as time, j.original_filename as metric, "
+                                "max(s.energy_used_j)::double precision as value "
+                                "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
+                                "where s.epoch_time is not null and s.energy_used_j is not null "
+                                "group by 1, 2 order by 1"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
+                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 21},
                 },
             ],
         }
@@ -236,7 +338,7 @@ class GrafanaProvisioner:
         org_id = self.ensure_org(username)
         set_user_workspace_grafana_org(user_id, org_id)
         grafana_user_id = self.ensure_user(username, password=password)
-        self.ensure_user_membership(username=username, org_id=org_id)
+        self.ensure_user_membership(username=username, grafana_user_id=grafana_user_id, org_id=org_id)
         self.select_user_org(grafana_user_id=grafana_user_id, org_id=org_id)
         self.remove_main_org_membership(grafana_user_id=grafana_user_id, org_id=org_id)
         self.ensure_postgres_datasource(user_id=user_id, username=username, org_id=org_id)
