@@ -264,7 +264,7 @@ class GrafanaProvisioner:
                             "format": "table",
                             "rawSql": (
                                 "select processed_at as time, job_id, benchmark_name, compute_node, original_filename, "
-                                "sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s "
+                                "sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s "
                                 "from benchmark_jobs order by processed_at desc"
                             ),
                             "rawQuery": True,

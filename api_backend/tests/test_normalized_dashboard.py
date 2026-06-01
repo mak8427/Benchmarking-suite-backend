@@ -6,6 +6,15 @@ import polars as pl
 
 from api_backend.db import record_storage_object
 from analysis_module.connectors.normalized import build_dashboard_samples, derive_job_metadata, infer_owner_metadata
+from analysis_module.pipeline_core.energy_profile import compute_energy_profile
+
+
+class SilentLogger:
+    def info(self, *_args, **_kwargs) -> None:
+        pass
+
+    def warning(self, *_args, **_kwargs) -> None:
+        pass
 
 
 def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
@@ -64,3 +73,14 @@ def test_derive_job_metadata_from_hdf5_filename() -> None:
         "compute_node": "agq007",
         "benchmark_name": "unknown",
     }
+
+
+def test_compute_energy_profile_handles_missing_cumulative_energy() -> None:
+    """Files with null cumulative energy should not crash normalization."""
+    frame = pl.DataFrame({"ElapsedTime": [0.0, 1.0], "Energy": [None, None]})
+
+    output, metrics = compute_energy_profile(frame, "job-1", "node-1", logger=SilentLogger())
+
+    assert output.height == 2
+    assert metrics is not None
+    assert metrics["energy_to_solution_j"] is None

@@ -120,8 +120,9 @@ def compute_energy_profile(
     peak_power = float(peak_power) if peak_power is not None and not math.isnan(peak_power) else float("nan")
     peak_time = float(peak_time) if peak_time is not None and not math.isnan(peak_time) else float("nan")
 
-    avg_power = ets / tts if tts and tts != 0 else float("nan")
-    edp = ets * tts if tts and not math.isnan(ets) else float("nan")
+    has_energy = ets is not None and not math.isnan(ets)
+    avg_power = ets / tts if has_energy and tts and tts != 0 else float("nan")
+    edp = ets * tts if has_energy and tts else float("nan")
 
     appliance_name, appliance_amount, appliance_unit = describe_energy_use(ets, return_tuple=True)
 

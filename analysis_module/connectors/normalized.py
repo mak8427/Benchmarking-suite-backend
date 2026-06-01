@@ -44,7 +44,7 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             max_power_w DOUBLE PRECISION,
             total_energy_j DOUBLE PRECISION,
             max_elapsed_time_s DOUBLE PRECISION,
-            median_power_w DOUBLE PRECISION,
+            mean_power_w DOUBLE PRECISION,
             job_id TEXT,
             compute_node TEXT,
             benchmark_name TEXT
@@ -82,7 +82,7 @@ def apply_postgres_schema_migrations() -> None:
         password=password,
         autocommit=True,
     ) as connection:
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS median_power_w DOUBLE PRECISION")
+        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS mean_power_w DOUBLE PRECISION")
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT")
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS compute_node TEXT")
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS benchmark_name TEXT")
@@ -193,7 +193,7 @@ def write_dashboard_tables(
     summary = samples.select(
         pl.len().cast(pl.Int64).alias("sample_count"),
         pl.col("node_power").max().alias("max_power_w"),
-        pl.col("node_power").median().alias("median_power_w"),
+        pl.col("node_power").mean().alias("mean_power_w"),
         pl.col("energy_used_j").max().alias("total_energy_j"),
         pl.col("elapsed_time").max().alias("max_elapsed_time_s"),
     ).to_dicts()[0]
@@ -205,7 +205,7 @@ def write_dashboard_tables(
             "original_filename": [metadata["original_filename"]],
             "sample_count": [summary["sample_count"]],
             "max_power_w": [summary["max_power_w"]],
-            "median_power_w": [summary["median_power_w"]],
+            "mean_power_w": [summary["mean_power_w"]],
             "total_energy_j": [summary["total_energy_j"]],
             "max_elapsed_time_s": [summary["max_elapsed_time_s"]],
             "job_id": [job_metadata["job_id"]],
@@ -219,8 +219,8 @@ def write_dashboard_tables(
     con.execute(
         """
         INSERT INTO pg.public.benchmark_jobs
-        (object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name)
-        SELECT object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, median_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name
+        (object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name)
+        SELECT object_key, owner_user_id, owner_username, original_filename, sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name
         FROM dashboard_jobs;
         """
     )
