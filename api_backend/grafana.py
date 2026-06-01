@@ -95,15 +95,18 @@ class GrafanaProvisioner:
         response = self._request("POST", "/api/orgs", json={"name": org_name})
         return int(response.json().get("orgId") or response.json()["id"])
 
-    def ensure_user(self, username: str) -> int:
-        """Return a Grafana user id, creating it when missing."""
+    def ensure_user(self, username: str, password: str | None = None) -> int:
+        """Return a Grafana user id, creating or updating it when missing."""
         response = self.client.get(
             f"{self.settings.url}/api/users/lookup?loginOrEmail={username}",
             auth=(self.settings.admin_user or "", self.settings.admin_password or ""),
             timeout=15.0,
         )
         if response.status_code == 200:
-            return int(response.json()["id"])
+            user_id = int(response.json()["id"])
+            if password:
+                self._request("PUT", f"/api/admin/users/{user_id}/password", json={"password": password})
+            return user_id
         response = self._request(
             "POST",
             "/api/admin/users",
@@ -111,7 +114,7 @@ class GrafanaProvisioner:
                 "name": username,
                 "email": f"{username}@benchmarking-suite.local",
                 "login": username,
-                "password": secrets.token_urlsafe(32),
+                "password": password or secrets.token_urlsafe(32),
             },
         )
         return int(response.json()["id"])
@@ -221,7 +224,7 @@ class GrafanaProvisioner:
             json={"dashboard": dashboard, "overwrite": True},
         )
 
-    def provision_user(self, *, user_id: str, username: str) -> bool:
+    def provision_user(self, *, user_id: str, username: str, password: str | None = None) -> bool:
         """Provision Grafana resources for a backend user.
 
         Returns False when Grafana admin credentials are not configured.
@@ -232,7 +235,7 @@ class GrafanaProvisioner:
         self.ensure_postgres_role(user_id=user_id, workspace=workspace)
         org_id = self.ensure_org(username)
         set_user_workspace_grafana_org(user_id, org_id)
-        grafana_user_id = self.ensure_user(username)
+        grafana_user_id = self.ensure_user(username, password=password)
         self.ensure_user_membership(username=username, org_id=org_id)
         self.select_user_org(grafana_user_id=grafana_user_id, org_id=org_id)
         self.remove_main_org_membership(grafana_user_id=grafana_user_id, org_id=org_id)
