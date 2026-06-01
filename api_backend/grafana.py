@@ -200,6 +200,22 @@ class GrafanaProvisioner:
             "schemaVersion": 39,
             "version": 1,
             "time": {"from": "now-30d", "to": "now"},
+            "templating": {
+                "list": [
+                    {
+                        "name": "benchmark",
+                        "type": "query",
+                        "label": "Benchmark",
+                        "datasource": {"uid": datasource_uid, "type": "postgres"},
+                        "query": "select distinct coalesce(benchmark_name, 'unknown') as benchmark_name from benchmark_jobs order by 1",
+                        "refresh": 1,
+                        "includeAll": True,
+                        "allValue": "%",
+                        "multi": False,
+                        "current": {"selected": True, "text": "All", "value": "%"},
+                    }
+                ]
+            },
             "panels": [
                 {
                     "id": 1,
@@ -211,7 +227,17 @@ class GrafanaProvisioner:
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select count(distinct job_id)::bigint as processed_jobs from benchmark_jobs",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
+                                "canonical as (select * from ranked where rn = 1) "
+                                "select count(*)::bigint as processed_jobs from canonical "
+                                "where ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}')"
+                            ),
                             "rawQuery": True,
                         }
                     ],
@@ -229,11 +255,15 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "with ranked as (select *, row_number() over (partition by job_id "
-                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
-                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))) "
                                 "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j "
-                                "from ranked where rn = 1"
+                                "from ranked where rn = 1 "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}')"
                             ),
                             "rawQuery": True,
                         }
@@ -252,11 +282,15 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "with ranked as (select *, row_number() over (partition by job_id "
-                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
-                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))) "
                                 "select coalesce(sum(max_elapsed_time_s), 0)::double precision as cluster_time_s "
-                                "from ranked where rn = 1"
+                                "from ranked where rn = 1 "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}')"
                             ),
                             "rawQuery": True,
                         }
@@ -275,13 +309,18 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "with ranked as (select *, row_number() over (partition by job_id "
-                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
-                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
-                                "select measured_at as time, job_id, benchmark_name, compute_node, "
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))) "
+                                "select coalesce(measured_at, processed_at) as time, job_id, coalesce(benchmark_name, 'unknown') as benchmark_name, compute_node, "
                                 "original_filename, sample_count, max_power_w, mean_power_w, "
                                 "total_energy_j, max_elapsed_time_s "
-                                "from ranked where rn = 1 order by measured_at desc nulls last"
+                                "from ranked where rn = 1 "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "order by coalesce(measured_at, processed_at) desc nulls last"
                             ),
                             "rawQuery": True,
                         }
@@ -295,6 +334,133 @@ class GrafanaProvisioner:
                 },
                 {
                     "id": 5,
+                    "type": "barchart",
+                    "title": "Mean Energy by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
+                                "canonical as (select * from ranked where rn = 1) "
+                                "select compute_node, avg(total_energy_j)::double precision as mean_energy_j, "
+                                "count(*)::bigint as runs from canonical "
+                                "where compute_node is not null and total_energy_j is not null "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by compute_node order by mean_energy_j desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+                },
+                {
+                    "id": 6,
+                    "type": "barchart",
+                    "title": "Mean Power by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
+                                "canonical as (select * from ranked where rn = 1) "
+                                "select compute_node, avg(mean_power_w)::double precision as mean_power_w, "
+                                "count(*)::bigint as runs from canonical "
+                                "where compute_node is not null and mean_power_w is not null "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by compute_node order by mean_power_w desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+                },
+                {
+                    "id": 7,
+                    "type": "barchart",
+                    "title": "Mean Elapsed Time by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
+                                "canonical as (select * from ranked where rn = 1) "
+                                "select compute_node, avg(max_elapsed_time_s)::double precision as mean_elapsed_time_s, "
+                                "count(*)::bigint as runs from canonical "
+                                "where compute_node is not null and max_elapsed_time_s is not null "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by compute_node order by mean_elapsed_time_s desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+                },
+                {
+                    "id": 8,
+                    "type": "table",
+                    "title": "Compute Node Benchmark Summary",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
+                                "canonical as (select * from ranked where rn = 1) "
+                                "select coalesce(benchmark_name, 'unknown') as benchmark_name, compute_node, count(*)::bigint as runs, "
+                                "avg(total_energy_j)::double precision as mean_energy_j, "
+                                "avg(mean_power_w)::double precision as mean_power_w, "
+                                "avg(max_elapsed_time_s)::double precision as mean_elapsed_time_s, "
+                                "max(coalesce(measured_at, processed_at)) as last_measured_at from canonical "
+                                "where compute_node is not null "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by coalesce(benchmark_name, 'unknown'), compute_node order by benchmark_name, mean_energy_j desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}}, "overrides": []},
+                    "options": {"showHeader": True},
+                    "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+                },
+                {
+                    "id": 9,
                     "type": "timeseries",
                     "title": "Node Power",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
@@ -314,10 +480,10 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
-                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 12},
+                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 28},
                 },
                 {
-                    "id": 6,
+                    "id": 10,
                     "type": "timeseries",
                     "title": "Cumulative Energy",
                     "datasource": {"uid": datasource_uid, "type": "postgres"},
@@ -337,7 +503,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
-                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 21},
+                    "gridPos": {"h": 9, "w": 24, "x": 0, "y": 37},
                 },
             ],
         }

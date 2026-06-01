@@ -12,6 +12,7 @@ from analysis_module.connectors.normalized import (
     prepare_postgres_normalized_schema,
 )
 from analysis_module.pipeline_core.energy_profile import compute_energy_profile
+from api_backend.grafana import GrafanaProvisioner, GrafanaSettings
 
 
 class SilentLogger:
@@ -20,6 +21,20 @@ class SilentLogger:
 
     def warning(self, *_args, **_kwargs) -> None:
         pass
+
+
+class FakeGrafanaResponse:
+    def raise_for_status(self) -> None:
+        pass
+
+
+class FakeGrafanaClient:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def request(self, method, url, **kwargs):
+        self.requests.append({"method": method, "url": url, **kwargs})
+        return FakeGrafanaResponse()
 
 
 def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
@@ -97,3 +112,38 @@ def test_prepare_postgres_normalized_schema_noops_without_password(monkeypatch) 
     monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
 
     prepare_postgres_normalized_schema()
+
+
+def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
+    """Provisioned dashboards should compare nodes without counting duplicate HDF5 views."""
+    client = FakeGrafanaClient()
+    provisioner = GrafanaProvisioner(
+        settings=GrafanaSettings(
+            url="http://grafana.local",
+            admin_user="admin",
+            admin_password="secret",
+            postgres_host="postgres",
+            postgres_port="5432",
+            postgres_db="benchmarks",
+            postgres_admin_user="postgres",
+            postgres_admin_password="postgres",
+        ),
+        client=client,
+    )
+
+    provisioner.ensure_dashboard(user_id="user-1", org_id=7)
+
+    request = client.requests[0]
+    dashboard = request["json"]["dashboard"]
+    panel_titles = {panel["title"] for panel in dashboard["panels"]}
+    sql = "\n".join(target["rawSql"] for panel in dashboard["panels"] for target in panel.get("targets", []))
+
+    assert request["method"] == "POST"
+    assert request["headers"] == {"X-Grafana-Org-Id": "7"}
+    assert dashboard["templating"]["list"][0]["includeAll"] is True
+    assert "Mean Energy by Compute Node" in panel_titles
+    assert "Mean Power by Compute Node" in panel_titles
+    assert "Mean Elapsed Time by Compute Node" in panel_titles
+    assert "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown')" in sql
+    assert "$__timeFilter(coalesce(measured_at, processed_at))" in sql
+    assert "coalesce(benchmark_name, 'unknown') = '${benchmark:raw}'" in sql

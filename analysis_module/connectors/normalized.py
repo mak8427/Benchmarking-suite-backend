@@ -140,6 +140,18 @@ def apply_postgres_schema_migrations() -> None:
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT")
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS compute_node TEXT")
         connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS benchmark_name TEXT")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS benchmark_jobs_benchmark_node_time_idx "
+            "ON public.benchmark_jobs (benchmark_name, compute_node, measured_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS benchmark_jobs_node_time_idx "
+            "ON public.benchmark_jobs (compute_node, measured_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS benchmark_samples_object_epoch_idx "
+            "ON public.benchmark_samples (object_key, epoch_time)"
+        )
 
 
 def apply_postgres_security() -> None:

@@ -144,7 +144,7 @@ Slurm profiling commonly emits both files for the same job:
 - `JOBID_batch_NODE.h5`: the batch script step.
 - `JOBID_0_NODE.h5`: job step `0`, usually created by the actual workload step.
 
-In observed data these files have almost identical epoch ranges, power values, and total energy. They are not independent jobs. Dashboard job-level stats therefore select one canonical row per Slurm job, preferring `_batch_` when present and otherwise falling back to the longest elapsed row. Summing `_batch_` and `_0_` would double-count energy and cluster time.
+In observed data these files have almost identical epoch ranges, power values, and total energy. They are not independent jobs. Dashboard job-level stats therefore select one canonical row per Slurm job, benchmark, and compute node, preferring `_batch_` when present and otherwise falling back to the longest elapsed row. Summing `_batch_` and `_0_` would double-count energy and cluster time.
 
 Keep raw per-file rows for diagnostics. Aggregate only in Grafana SQL or in a future materialized job-summary table.
 
@@ -161,10 +161,12 @@ Users are Editors in their own private org so they can edit panels and queries, 
 
 Dashboard design:
 
-- `Processed Jobs`: `count(distinct job_id)`.
+- `Processed Jobs`: count of canonical job rows after the dashboard benchmark and time filters are applied.
 - `Total Energy`: sum over canonical per-job rows, not all files.
 - `Cluster Time`: sum over canonical per-job elapsed time, not all files.
 - `Recent Jobs`: benchmark measurement time, job id, benchmark name, node, selected canonical file, sample count, max power, mean power, total energy, elapsed time.
+- `Mean Energy by Compute Node`, `Mean Power by Compute Node`, and `Mean Elapsed Time by Compute Node`: per-node comparisons across all benchmarks or the selected benchmark variable.
+- `Compute Node Benchmark Summary`: grouped table for benchmark, node, run count, mean energy, mean power, and mean elapsed time.
 
 If a dashboard shows `unknown` benchmark names, check whether the upload was created before CLI metadata support or whether the HDF5 file cannot be mapped to a Benchwrap job folder.
 
