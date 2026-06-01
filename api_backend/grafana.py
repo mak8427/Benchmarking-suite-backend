@@ -228,7 +228,13 @@ class GrafanaProvisioner:
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j from (select job_id, max(total_energy_j) as total_energy_j from benchmark_jobs group by job_id) jobs",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over (partition by job_id "
+                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
+                                "select coalesce(sum(total_energy_j), 0)::double precision as total_energy_j "
+                                "from ranked where rn = 1"
+                            ),
                             "rawQuery": True,
                         }
                     ],
@@ -245,7 +251,13 @@ class GrafanaProvisioner:
                             "refId": "A",
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
-                            "rawSql": "select coalesce(sum(max_elapsed_time_s), 0)::double precision as cluster_time_s from (select job_id, max(max_elapsed_time_s) as max_elapsed_time_s from benchmark_jobs group by job_id) jobs",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over (partition by job_id "
+                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
+                                "select coalesce(sum(max_elapsed_time_s), 0)::double precision as cluster_time_s "
+                                "from ranked where rn = 1"
+                            ),
                             "rawQuery": True,
                         }
                     ],
@@ -263,13 +275,13 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select max(processed_at) as time, job_id, "
-                                "max(benchmark_name) as benchmark_name, max(compute_node) as compute_node, "
-                                "string_agg(original_filename, ', ' order by original_filename) as files, "
-                                "max(sample_count) as sample_count, max(max_power_w) as max_power_w, "
-                                "(max(total_energy_j) / nullif(max(max_elapsed_time_s), 0))::double precision as mean_power_w, "
-                                "max(total_energy_j) as total_energy_j, max(max_elapsed_time_s) as max_elapsed_time_s "
-                                "from benchmark_jobs group by job_id order by max(processed_at) desc"
+                                "with ranked as (select *, row_number() over (partition by job_id "
+                                "order by case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "max_elapsed_time_s desc) as rn from benchmark_jobs) "
+                                "select measured_at as time, job_id, benchmark_name, compute_node, "
+                                "original_filename, sample_count, max_power_w, mean_power_w, "
+                                "total_energy_j, max_elapsed_time_s "
+                                "from ranked where rn = 1 order by measured_at desc nulls last"
                             ),
                             "rawQuery": True,
                         }
