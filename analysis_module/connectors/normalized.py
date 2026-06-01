@@ -51,16 +51,6 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
-    for column_name, column_type in (
-        ("median_power_w", "DOUBLE PRECISION"),
-        ("job_id", "TEXT"),
-        ("compute_node", "TEXT"),
-        ("benchmark_name", "TEXT"),
-    ):
-        try:
-            con.execute(f"ALTER TABLE pg.public.benchmark_jobs ADD COLUMN {column_name} {column_type}")
-        except Exception:
-            pass
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS pg.public.benchmark_samples (
@@ -75,7 +65,27 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    apply_postgres_schema_migrations()
     apply_postgres_security()
+
+
+def apply_postgres_schema_migrations() -> None:
+    """Apply dashboard table migrations that DuckDB cannot express reliably."""
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not password:
+        return
+    with psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=password,
+        autocommit=True,
+    ) as connection:
+        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS median_power_w DOUBLE PRECISION")
+        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT")
+        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS compute_node TEXT")
+        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS benchmark_name TEXT")
 
 
 def apply_postgres_security() -> None:
