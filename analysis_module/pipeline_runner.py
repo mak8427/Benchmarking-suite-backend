@@ -12,7 +12,7 @@ import duckdb
 from analysis_module.connectors.db import setup_duckdb_with_postgres
 from analysis_module.connectors.discovery import discover_h5_files
 from analysis_module.connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
-from analysis_module.connectors.normalized import ensure_normalized_schema, write_dashboard_tables
+from analysis_module.connectors.normalized import prepare_postgres_normalized_schema, ensure_normalized_schema, write_dashboard_tables
 from analysis_module.processing.h5_processing import HDF5OpenError, h5_to_dataframe
 from analysis_module.utils.common import validate_h5_file
 from analysis_module.pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
@@ -152,6 +152,7 @@ def run_pipeline() -> None:
 
     logger.info("Step 3/4: Processing HDF5 files...")
     step3_start = time.perf_counter()
+    prepare_postgres_normalized_schema()
     con = setup_duckdb_with_postgres(password=os.getenv("POSTGRES_PASSWORD", ""), logger=logger)
     ensure_normalized_schema(con)
 

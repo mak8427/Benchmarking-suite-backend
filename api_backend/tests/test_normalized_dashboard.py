@@ -5,7 +5,12 @@ from __future__ import annotations
 import polars as pl
 
 from api_backend.db import record_storage_object
-from analysis_module.connectors.normalized import build_dashboard_samples, derive_job_metadata, infer_owner_metadata
+from analysis_module.connectors.normalized import (
+    build_dashboard_samples,
+    derive_job_metadata,
+    infer_owner_metadata,
+    prepare_postgres_normalized_schema,
+)
 from analysis_module.pipeline_core.energy_profile import compute_energy_profile
 
 
@@ -84,3 +89,10 @@ def test_compute_energy_profile_handles_missing_cumulative_energy() -> None:
     assert output.height == 2
     assert metrics is not None
     assert metrics["energy_to_solution_j"] is None
+
+
+def test_prepare_postgres_normalized_schema_noops_without_password(monkeypatch) -> None:
+    """The pre-attach migration hook should be safe in local test runs."""
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+
+    prepare_postgres_normalized_schema()

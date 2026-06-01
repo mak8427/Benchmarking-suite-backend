@@ -69,6 +69,56 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
     apply_postgres_security()
 
 
+def prepare_postgres_normalized_schema() -> None:
+    """Create or migrate dashboard tables before DuckDB attaches to Postgres."""
+    password = os.getenv("POSTGRES_PASSWORD")
+    if not password:
+        return
+    with psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=password,
+        autocommit=True,
+    ) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.benchmark_jobs (
+                object_key TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                sample_count BIGINT NOT NULL,
+                max_power_w DOUBLE PRECISION,
+                total_energy_j DOUBLE PRECISION,
+                max_elapsed_time_s DOUBLE PRECISION,
+                mean_power_w DOUBLE PRECISION,
+                job_id TEXT,
+                compute_node TEXT,
+                benchmark_name TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.benchmark_samples (
+                object_key TEXT NOT NULL,
+                owner_user_id TEXT NOT NULL,
+                elapsed_time DOUBLE PRECISION NOT NULL,
+                epoch_time BIGINT,
+                node_power DOUBLE PRECISION,
+                energy_used_j DOUBLE PRECISION,
+                energy_increment_j DOUBLE PRECISION,
+                cpu_utilization DOUBLE PRECISION
+            )
+            """
+        )
+    apply_postgres_schema_migrations()
+    apply_postgres_security()
+
+
 def apply_postgres_schema_migrations() -> None:
     """Apply dashboard table migrations that DuckDB cannot express reliably."""
     password = os.getenv("POSTGRES_PASSWORD")
