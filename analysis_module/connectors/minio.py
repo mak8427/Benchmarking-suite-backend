@@ -109,7 +109,7 @@ def download_minio_object(client: Any, bucket: str, object_name: str, *, logger)
         client.fget_object(bucket, object_name, tmp.name)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Failed to download {bucket}/{object_name}") from exc
-    logger.info("Downloaded %s to %s", object_name, tmp.name)
+    logger.debug("Downloaded %s to %s", object_name, tmp.name)
     return Path(tmp.name)
 
 

@@ -183,7 +183,6 @@ def write_dashboard_tables(
     """Write normalized job and sample rows for Grafana dashboards."""
     metadata = infer_owner_metadata(file_label)
     samples = build_dashboard_samples(df, metadata)
-    ensure_normalized_schema(con)
     con.execute("DELETE FROM pg.public.benchmark_samples WHERE object_key = ?", [metadata["object_key"]])
     con.execute("DELETE FROM pg.public.benchmark_jobs WHERE object_key = ?", [metadata["object_key"]])
     if samples.is_empty():
