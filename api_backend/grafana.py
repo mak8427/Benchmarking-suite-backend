@@ -172,7 +172,12 @@ class GrafanaProvisioner:
             "database": self.settings.postgres_db,
             "user": workspace["postgres_role"],
             "isDefault": True,
-            "jsonData": {"sslmode": "disable", "postgresVersion": 1600, "timescaledb": False},
+            "jsonData": {
+                "database": self.settings.postgres_db,
+                "sslmode": "disable",
+                "postgresVersion": 1600,
+                "timescaledb": False,
+            },
             "secureJsonData": {"password": workspace["postgres_password"]},
         }
         response = self.client.get(
