@@ -23,6 +23,27 @@ except ModuleNotFoundError:  # pragma: no cover - supports running from api_back
     from db import get_or_create_user_workspace, set_user_workspace_grafana_org  # type: ignore[no-redef]
 
 
+def _bar_chart_field_config(unit: str) -> dict[str, Any]:
+    """Return bar chart field config with value labels forced on."""
+    return {
+        "defaults": {
+            "unit": unit,
+            "custom": {"showValue": "always"},
+        },
+        "overrides": [],
+    }
+
+
+def _bar_chart_options() -> dict[str, Any]:
+    """Return bar chart options that show values across Grafana versions."""
+    return {
+        "orientation": "auto",
+        "showValue": "always",
+        "text": {"valueSize": 12},
+        "xField": "compute_node",
+    }
+
+
 @dataclass(frozen=True)
 class GrafanaSettings:
     """Runtime settings for Grafana provisioning."""
@@ -406,8 +427,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("joule"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
                 },
                 {
@@ -436,8 +457,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("watt"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
                 },
                 {
@@ -466,8 +487,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("s"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
                 },
                 {
@@ -579,8 +600,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "Mflops"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("Mflops"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 46},
                 },
                 {
@@ -604,8 +625,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("none"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 46},
                 },
                 {
@@ -629,8 +650,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("percent"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 16, "y": 46},
                 },
                 {
@@ -654,8 +675,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("none"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 54},
                 },
                 {
@@ -679,8 +700,8 @@ class GrafanaProvisioner:
                             "rawQuery": True,
                         }
                     ],
-                    "fieldConfig": {"defaults": {"unit": "currencyEUR"}, "overrides": []},
-                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
+                    "fieldConfig": _bar_chart_field_config("currencyEUR"),
+                    "options": _bar_chart_options(),
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 54},
                 },
                 {

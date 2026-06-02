@@ -280,6 +280,7 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
         assert " as jobs" not in panel_sql
         assert " as runs" not in panel_sql
         assert panel["options"]["showValue"] == "always"
+        assert panel["fieldConfig"]["defaults"]["custom"]["showValue"] == "always"
 
 
 def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
