@@ -263,7 +263,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-                    "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+                    "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
                 },
                 {
                     "id": 2,
@@ -290,7 +290,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
-                    "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+                    "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
                 },
                 {
                     "id": 3,
@@ -317,7 +317,34 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-                    "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+                    "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+                },
+                {
+                    "id": 11,
+                    "type": "stat",
+                    "title": "Electricity Cost",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "with ranked as (select *, row_number() over ("
+                                "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown'), "
+                                "coalesce(compute_node, 'unknown') order by "
+                                "case when original_filename like '%_batch_%' then 0 else 1 end, "
+                                "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
+                                "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))) "
+                                "select coalesce(sum(total_cost_eur), 0)::double precision as total_cost_eur "
+                                "from ranked where rn = 1 "
+                                "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}')"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "currencyEUR"}, "overrides": []},
+                    "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
                 },
                 {
                     "id": 4,
@@ -338,7 +365,7 @@ class GrafanaProvisioner:
                                 "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))) "
                                 "select coalesce(measured_at, processed_at) as time, job_id, coalesce(benchmark_name, 'unknown') as benchmark_name, compute_node, "
                                 "original_filename, sample_count, max_power_w, mean_power_w, "
-                                "total_energy_j, max_elapsed_time_s "
+                                "total_energy_j, total_cost_eur, mean_price_eur_per_mwh, max_elapsed_time_s "
                                 "from ranked where rn = 1 "
                                 "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
                                 "order by coalesce(measured_at, processed_at) desc nulls last"
@@ -468,6 +495,8 @@ class GrafanaProvisioner:
                                 "avg(total_energy_j)::double precision as mean_energy_j, "
                                 "avg(mean_power_w)::double precision as mean_power_w, "
                                 "avg(max_elapsed_time_s)::double precision as mean_elapsed_time_s, "
+                                "avg(total_cost_eur)::double precision as mean_cost_eur, "
+                                "avg(mean_price_eur_per_mwh)::double precision as mean_price_eur_per_mwh, "
                                 "max(coalesce(measured_at, processed_at)) as last_measured_at from canonical "
                                 "where compute_node is not null "
                                 "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
@@ -531,6 +560,169 @@ class GrafanaProvisioner:
                     ],
                     "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
                     "gridPos": {"h": 9, "w": 24, "x": 0, "y": 37},
+                },
+                {
+                    "id": 12,
+                    "type": "barchart",
+                    "title": "LIKWID DP FLOP/s by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select l.compute_node, avg(l.dp_mflops)::double precision as mean_dp_mflops, "
+                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null and l.dp_mflops is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by l.compute_node order by mean_dp_mflops desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "Mflops"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 0, "y": 46},
+                },
+                {
+                    "id": 13,
+                    "type": "barchart",
+                    "title": "LIKWID DP MFLOP/s per Watt",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select l.compute_node, avg(l.dp_mflops / nullif(j.mean_power_w, 0))::double precision as mean_mflops_per_watt, "
+                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null and l.dp_mflops is not null and j.mean_power_w is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by l.compute_node order by mean_mflops_per_watt desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 8, "y": 46},
+                },
+                {
+                    "id": 14,
+                    "type": "barchart",
+                    "title": "LIKWID Vectorization by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select l.compute_node, avg(l.vectorization_ratio_pct)::double precision as mean_vectorization_pct, "
+                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null and l.vectorization_ratio_pct is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by l.compute_node order by mean_vectorization_pct desc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 16, "y": 46},
+                },
+                {
+                    "id": 15,
+                    "type": "barchart",
+                    "title": "LIKWID CPI by Compute Node",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select l.compute_node, avg(l.cpi)::double precision as mean_cpi, "
+                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null and l.cpi is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by l.compute_node order by mean_cpi asc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 0, "y": 54},
+                },
+                {
+                    "id": 16,
+                    "type": "barchart",
+                    "title": "LIKWID Cost per GFLOP",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select l.compute_node, avg(j.total_cost_eur / nullif((l.dp_mflops * l.elapsed_time_s / 1000.0), 0))::double precision as mean_eur_per_gflop, "
+                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null and l.dp_mflops is not null and l.elapsed_time_s is not null and j.total_cost_eur is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by l.compute_node order by mean_eur_per_gflop asc"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"unit": "currencyEUR"}, "overrides": []},
+                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "gridPos": {"h": 8, "w": 8, "x": 8, "y": 54},
+                },
+                {
+                    "id": 17,
+                    "type": "table",
+                    "title": "LIKWID Node Efficiency Summary",
+                    "datasource": {"uid": datasource_uid, "type": "postgres"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"uid": datasource_uid, "type": "postgres"},
+                            "format": "table",
+                            "rawSql": (
+                                "select coalesce(l.benchmark_name, 'unknown') as benchmark_name, l.compute_node, "
+                                "count(distinct l.job_id)::bigint as jobs, "
+                                "avg(l.dp_mflops)::double precision as mean_dp_mflops, "
+                                "avg(l.dp_mflops / nullif(j.mean_power_w, 0))::double precision as mean_mflops_per_watt, "
+                                "avg(l.vectorization_ratio_pct)::double precision as mean_vectorization_pct, "
+                                "avg(l.cpi)::double precision as mean_cpi, "
+                                "avg(l.clock_mhz)::double precision as mean_clock_mhz, "
+                                "avg(j.total_cost_eur / nullif((l.dp_mflops * l.elapsed_time_s / 1000.0), 0))::double precision as mean_eur_per_gflop "
+                                "from benchmark_likwid_samples l join benchmark_jobs j on j.object_key = l.h5_object_key "
+                                "where l.compute_node is not null "
+                                "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(l.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "group by coalesce(l.benchmark_name, 'unknown'), l.compute_node "
+                                "order by benchmark_name, mean_mflops_per_watt desc nulls last"
+                            ),
+                            "rawQuery": True,
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}}, "overrides": []},
+                    "options": {"showHeader": True},
+                    "gridPos": {"h": 8, "w": 8, "x": 16, "y": 54},
                 },
             ],
         }

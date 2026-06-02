@@ -77,6 +77,21 @@ def _render_trace_sql(sql: str, *, benchmark: str = "%", job_trace: str = "%") -
     )
 
 
+def _render_dashboard_sql(sql: str, *, benchmark: str = "%") -> str:
+    return (
+        sql.replace(
+            "$__timeFilter(coalesce(j.measured_at, j.processed_at))",
+            "coalesce(j.measured_at, j.processed_at) between timestamp '2025-01-01' and timestamp '2027-01-01'",
+        )
+        .replace(
+            "$__timeFilter(coalesce(measured_at, processed_at))",
+            "coalesce(measured_at, processed_at) between timestamp '2025-01-01' and timestamp '2027-01-01'",
+        )
+        .replace("${benchmark:raw}", benchmark)
+        .replace("${job_trace:raw}", "%")
+    )
+
+
 def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
     """Remote object labels should resolve to backend ownership metadata."""
     key = "user-1/file.h5"
@@ -108,6 +123,8 @@ def test_build_dashboard_samples_extracts_common_metrics() -> None:
             "NodePower": [10.0, 20.0],
             "Energy_used_J": [0.0, 20.0],
             "Energy_Increment_J": [0.0, 20.0],
+            "Price_EUR_per_MWh": [80.0, 90.0],
+            "Cumulative_cost_EUR": [0.0, 0.0005],
             "Node__CPUUtilization": [30.0, 40.0],
         }
     )
@@ -123,9 +140,13 @@ def test_build_dashboard_samples_extracts_common_metrics() -> None:
         "node_power",
         "energy_used_j",
         "energy_increment_j",
+        "price_eur_per_mwh",
+        "cumulative_cost_eur",
         "cpu_utilization",
     ]
     assert samples.to_dicts()[1]["energy_used_j"] == 20.0
+    assert samples.to_dicts()[1]["price_eur_per_mwh"] == 90.0
+    assert samples.to_dicts()[1]["cumulative_cost_eur"] == 0.0005
 
 
 def test_derive_job_metadata_from_hdf5_filename() -> None:
@@ -218,6 +239,13 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
     assert "Mean Energy by Compute Node" in panel_titles
     assert "Mean Power by Compute Node" in panel_titles
     assert "Mean Elapsed Time by Compute Node" in panel_titles
+    assert "Electricity Cost" in panel_titles
+    assert "LIKWID DP FLOP/s by Compute Node" in panel_titles
+    assert "LIKWID DP MFLOP/s per Watt" in panel_titles
+    assert "LIKWID Vectorization by Compute Node" in panel_titles
+    assert "LIKWID CPI by Compute Node" in panel_titles
+    assert "LIKWID Cost per GFLOP" in panel_titles
+    assert "LIKWID Node Efficiency Summary" in panel_titles
     assert (
         "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown')"
         in sql
@@ -239,6 +267,12 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
     assert "j.job_id::text = '${job_trace:raw}'" in node_power_sql
     assert "j.job_id::text = '${job_trace:raw}'" in cumulative_energy_sql
     assert "${job_trace:raw}" not in summary_sql
+    assert "sum(total_cost_eur)" in panels_by_title["Electricity Cost"]["targets"][0]["rawSql"]
+    assert "total_cost_eur" in panels_by_title["Recent Jobs"]["targets"][0]["rawSql"]
+    assert "mean_cost_eur" in panels_by_title["Compute Node Benchmark Summary"]["targets"][0]["rawSql"]
+    assert "benchmark_likwid_samples" in panels_by_title["LIKWID Node Efficiency Summary"]["targets"][0]["rawSql"]
+    assert "dp_mflops / nullif(j.mean_power_w, 0)" in panels_by_title["LIKWID DP MFLOP/s per Watt"]["targets"][0]["rawSql"]
+    assert "j.total_cost_eur / nullif" in panels_by_title["LIKWID Cost per GFLOP"]["targets"][0]["rawSql"]
 
 
 def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
@@ -255,6 +289,26 @@ def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
         assert "s.epoch_time >= 1700000000" in rendered
         assert "j.job_id::text = '14038010'" in rendered
         assert "to_timestamp(s.epoch_time) as time" in rendered
+
+
+def test_likwid_dashboard_sql_renders_expected_efficiency_metrics() -> None:
+    """LIKWID panels should render concrete node-efficiency SQL."""
+    dashboard = _dashboard()
+    for title in (
+        "LIKWID DP FLOP/s by Compute Node",
+        "LIKWID DP MFLOP/s per Watt",
+        "LIKWID Vectorization by Compute Node",
+        "LIKWID CPI by Compute Node",
+        "LIKWID Cost per GFLOP",
+        "LIKWID Node Efficiency Summary",
+    ):
+        rendered = _render_dashboard_sql(
+            _panel_sql(dashboard, title), benchmark="coremark_mini"
+        )
+        assert "$__" not in rendered
+        assert "${" not in rendered
+        assert "benchmark_likwid_samples" in rendered
+        assert "coremark_mini" in rendered
 
 
 @pytest.mark.skipif(
@@ -282,11 +336,18 @@ def test_trace_panel_sql_explains_on_postgres() -> None:
         with connection.transaction():
             connection.execute(
                 "CREATE TEMP TABLE benchmark_jobs (object_key text, original_filename text, "
-                "benchmark_name text, job_id text)"
+                "benchmark_name text, job_id text, measured_at timestamptz, processed_at timestamptz, "
+                "mean_power_w double precision, total_cost_eur double precision)"
             )
             connection.execute(
                 "CREATE TEMP TABLE benchmark_samples (object_key text, epoch_time bigint, "
                 "node_power double precision, energy_used_j double precision)"
+            )
+            connection.execute(
+                "CREATE TEMP TABLE benchmark_likwid_samples (h5_object_key text, job_id text, "
+                "compute_node text, benchmark_name text, dp_mflops double precision, "
+                "vectorization_ratio_pct double precision, cpi double precision, clock_mhz double precision, "
+                "elapsed_time_s double precision)"
             )
             for query in queries:
                 connection.execute(f"EXPLAIN {query}").fetchall()

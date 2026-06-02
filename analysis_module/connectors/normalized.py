@@ -73,6 +73,8 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             total_energy_j DOUBLE PRECISION,
             max_elapsed_time_s DOUBLE PRECISION,
             mean_power_w DOUBLE PRECISION,
+            total_cost_eur DOUBLE PRECISION,
+            mean_price_eur_per_mwh DOUBLE PRECISION,
             job_id TEXT,
             compute_node TEXT,
             benchmark_name TEXT
@@ -87,6 +89,8 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             node_power DOUBLE PRECISION,
             energy_used_j DOUBLE PRECISION,
             energy_increment_j DOUBLE PRECISION,
+            price_eur_per_mwh DOUBLE PRECISION,
+            cumulative_cost_eur DOUBLE PRECISION,
             cpu_utilization DOUBLE PRECISION
         );
         """)
@@ -151,6 +155,8 @@ def prepare_postgres_normalized_schema() -> None:
                 total_energy_j DOUBLE PRECISION,
                 max_elapsed_time_s DOUBLE PRECISION,
                 mean_power_w DOUBLE PRECISION,
+                total_cost_eur DOUBLE PRECISION,
+                mean_price_eur_per_mwh DOUBLE PRECISION,
                 job_id TEXT,
                 compute_node TEXT,
                 benchmark_name TEXT
@@ -165,6 +171,8 @@ def prepare_postgres_normalized_schema() -> None:
                 node_power DOUBLE PRECISION,
                 energy_used_j DOUBLE PRECISION,
                 energy_increment_j DOUBLE PRECISION,
+                price_eur_per_mwh DOUBLE PRECISION,
+                cumulative_cost_eur DOUBLE PRECISION,
                 cpu_utilization DOUBLE PRECISION
             )
             """)
@@ -223,6 +231,12 @@ def apply_postgres_schema_migrations() -> None:
             "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS mean_power_w DOUBLE PRECISION"
         )
         connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS total_cost_eur DOUBLE PRECISION"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS mean_price_eur_per_mwh DOUBLE PRECISION"
+        )
+        connection.execute(
             "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT"
         )
         connection.execute(
@@ -242,6 +256,12 @@ def apply_postgres_schema_migrations() -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS benchmark_samples_object_epoch_idx "
             "ON public.benchmark_samples (object_key, epoch_time)"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_samples ADD COLUMN IF NOT EXISTS price_eur_per_mwh DOUBLE PRECISION"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_samples ADD COLUMN IF NOT EXISTS cumulative_cost_eur DOUBLE PRECISION"
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS benchmark_likwid_job_elapsed_idx "
@@ -332,6 +352,8 @@ def build_dashboard_samples(df: pl.DataFrame, metadata: dict[str, str]) -> pl.Da
     )
     energy_used = _first_existing(df, ["Energy_used_J"])
     energy_increment = _first_existing(df, ["Energy_Increment_J"])
+    price = _first_existing(df, ["Price_EUR_per_MWh"])
+    cumulative_cost = _first_existing(df, ["Cumulative_cost_EUR"])
     epoch_time = _first_existing(
         df, ["EpochTime", "Energy__EpochTime", "Node__EpochTime"]
     )
@@ -363,6 +385,16 @@ def build_dashboard_samples(df: pl.DataFrame, metadata: dict[str, str]) -> pl.Da
             pl.col(energy_increment).cast(pl.Float64).alias("energy_increment_j")
             if energy_increment
             else pl.lit(None).cast(pl.Float64).alias("energy_increment_j")
+        ),
+        (
+            pl.col(price).cast(pl.Float64).alias("price_eur_per_mwh")
+            if price
+            else pl.lit(None).cast(pl.Float64).alias("price_eur_per_mwh")
+        ),
+        (
+            pl.col(cumulative_cost).cast(pl.Float64).alias("cumulative_cost_eur")
+            if cumulative_cost
+            else pl.lit(None).cast(pl.Float64).alias("cumulative_cost_eur")
         ),
         (
             pl.col(cpu_utilization).cast(pl.Float64).alias("cpu_utilization")
@@ -403,6 +435,8 @@ def write_dashboard_tables(
         pl.col("node_power").max().alias("max_power_w"),
         pl.col("node_power").mean().alias("mean_power_w"),
         pl.col("energy_used_j").max().alias("total_energy_j"),
+        pl.col("cumulative_cost_eur").max().alias("total_cost_eur"),
+        pl.col("price_eur_per_mwh").mean().alias("mean_price_eur_per_mwh"),
         pl.col("elapsed_time").max().alias("max_elapsed_time_s"),
         pl.col("epoch_time").min().alias("measured_epoch"),
     ).to_dicts()[0]
@@ -417,6 +451,8 @@ def write_dashboard_tables(
             "max_power_w": [summary["max_power_w"]],
             "mean_power_w": [summary["mean_power_w"]],
             "total_energy_j": [summary["total_energy_j"]],
+            "total_cost_eur": [summary["total_cost_eur"]],
+            "mean_price_eur_per_mwh": [summary["mean_price_eur_per_mwh"]],
             "max_elapsed_time_s": [summary["max_elapsed_time_s"]],
             "job_id": [job_metadata["job_id"]],
             "compute_node": [job_metadata["compute_node"]],
@@ -428,14 +464,14 @@ def write_dashboard_tables(
     con.register("dashboard_samples", samples)
     con.execute("""
         INSERT INTO pg.public.benchmark_jobs
-        (object_key, owner_user_id, owner_username, original_filename, measured_at, sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name)
-        SELECT object_key, owner_user_id, owner_username, original_filename, to_timestamp(measured_epoch), sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name
+        (object_key, owner_user_id, owner_username, original_filename, measured_at, sample_count, max_power_w, mean_power_w, total_energy_j, total_cost_eur, mean_price_eur_per_mwh, max_elapsed_time_s, job_id, compute_node, benchmark_name)
+        SELECT object_key, owner_user_id, owner_username, original_filename, to_timestamp(measured_epoch), sample_count, max_power_w, mean_power_w, total_energy_j, total_cost_eur, mean_price_eur_per_mwh, max_elapsed_time_s, job_id, compute_node, benchmark_name
         FROM dashboard_jobs;
         """)
     con.execute("""
         INSERT INTO pg.public.benchmark_samples
-        (object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, cpu_utilization)
-        SELECT object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, cpu_utilization
+        (object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, price_eur_per_mwh, cumulative_cost_eur, cpu_utilization)
+        SELECT object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, price_eur_per_mwh, cumulative_cost_eur, cpu_utilization
         FROM dashboard_samples;
         """)
     mark_storage_object_processed(metadata["object_key"])
