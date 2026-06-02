@@ -140,7 +140,11 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
 
     assert request["method"] == "POST"
     assert request["headers"] == {"X-Grafana-Org-Id": "7"}
-    assert dashboard["templating"]["list"][0]["includeAll"] is True
+    variable = dashboard["templating"]["list"][0]
+    assert variable["type"] == "query"
+    assert variable["includeAll"] is True
+    assert variable["refresh"] == 2
+    assert "select distinct coalesce(benchmark_name, 'unknown')" in variable["query"]
     assert "Mean Energy by Compute Node" in panel_titles
     assert "Mean Power by Compute Node" in panel_titles
     assert "Mean Elapsed Time by Compute Node" in panel_titles

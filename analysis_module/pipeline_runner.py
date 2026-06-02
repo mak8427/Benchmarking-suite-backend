@@ -165,3 +165,7 @@ def run_pipeline() -> None:
     logger.info("=" * 60)
     logger.info("🎉 Pipeline completed successfully!")
     logger.info("⏱️  Total pipeline execution took %.3f seconds", time.perf_counter() - pipeline_start)
+
+
+if __name__ == "__main__":
+    run_pipeline()

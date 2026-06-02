@@ -208,10 +208,12 @@ class GrafanaProvisioner:
                         "label": "Benchmark",
                         "datasource": {"uid": datasource_uid, "type": "postgres"},
                         "query": "select distinct coalesce(benchmark_name, 'unknown') as benchmark_name from benchmark_jobs order by 1",
-                        "refresh": 1,
+                        "refresh": 2,
+                        "sort": 1,
                         "includeAll": True,
                         "allValue": "%",
                         "multi": False,
+                        "hide": 0,
                         "current": {"selected": True, "text": "All", "value": "%"},
                     }
                 ]

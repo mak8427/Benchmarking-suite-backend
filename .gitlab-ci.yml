@@ -40,3 +40,14 @@ pytest:
   script:
     - pip install pytest
     - pytest api_backend/tests
+
+instance_smoke:
+  stage: remote
+  tags:
+    - instance
+  script:
+    - bash scripts/instance-smoke.sh
+  rules:
+    - if: '$INSTANCE_SMOKE == "1"'
+    - when: manual
+  allow_failure: false
