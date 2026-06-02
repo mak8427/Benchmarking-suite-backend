@@ -71,7 +71,7 @@ def integrate_price_data(
 
     if "Energy_used_J" in df.columns:
         df = df.with_columns(
-            ((pl.col("Energy_used_J") / 3_600_000.0) * pl.col("Price_EUR_per_MWh")).alias("Cumulative_cost_EUR")
+            ((pl.col("Energy_used_J") / 3_600_000_000.0) * pl.col("Price_EUR_per_MWh")).alias("Cumulative_cost_EUR")
         )
 
     return df, price_df

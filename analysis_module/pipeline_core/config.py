@@ -72,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable market price integration.",
     )
+    parser.add_argument(
+        "--no-fetch-price",
+        action="store_false",
+        dest="fetch_price",
+        help="Disable market price integration.",
+    )
     parser.add_argument("--price-filter-id", type=int, default=None, help="SMARD filter id.")
     parser.add_argument("--price-region", type=str, default=None, help="SMARD region.")
     parser.add_argument("--price-resolution", type=str, default=None, help="SMARD resolution.")
@@ -168,7 +174,7 @@ class PipelineConfig:
             summary_dir=_resolve(_pick("summary_dir", "summaries"), "summaries"),
             price_dir=_resolve(_pick("price_dir", "prices"), "prices"),
             log_file=_resolve(_pick("log_file", "analysis.log"), "analysis.log"),
-            fetch_price=bool(_pick("fetch_price", False)),
+            fetch_price=bool(_pick("fetch_price", True)),
             allow_missing_source=bool(_pick("allow_missing_source", False)),
             price=PriceSettings(
                 filter_id=int(_pick("price_filter_id", 4169)),

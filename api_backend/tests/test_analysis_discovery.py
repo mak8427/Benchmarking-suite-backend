@@ -6,7 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from analysis_module.connectors import discovery
-from analysis_module.pipeline_core.config import PriceSettings, PipelineConfig, validate_source
+from analysis_module.pipeline_core.config import (
+    PriceSettings,
+    PipelineConfig,
+    build_parser,
+    validate_source,
+)
 
 
 class Logger:
@@ -38,6 +43,17 @@ def test_validate_source_allows_s3_sync(monkeypatch, tmp_path) -> None:
     """Remote S3 runs should not require the local source directory to exist."""
     monkeypatch.setenv("S3_SYNC", "1")
     validate_source(_config(tmp_path))
+
+
+def test_pipeline_fetches_price_by_default(tmp_path) -> None:
+    """New analysis runs should attach market price data unless disabled."""
+    parser = build_parser()
+    cfg = PipelineConfig.from_args(parser.parse_args([]), tmp_path)
+
+    assert cfg.fetch_price is True
+
+    disabled = PipelineConfig.from_args(parser.parse_args(["--no-fetch-price"]), tmp_path)
+    assert disabled.fetch_price is False
 
 
 def test_discover_h5_files_uses_collect_signature(monkeypatch, tmp_path) -> None:

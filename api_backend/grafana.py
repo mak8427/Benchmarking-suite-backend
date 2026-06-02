@@ -398,8 +398,7 @@ class GrafanaProvisioner:
                                 "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
                                 "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
                                 "canonical as (select * from ranked where rn = 1) "
-                                "select compute_node, avg(total_energy_j)::double precision as mean_energy_j, "
-                                "count(*)::bigint as runs from canonical "
+                                "select compute_node, avg(total_energy_j)::double precision as mean_energy_j from canonical "
                                 "where compute_node is not null and total_energy_j is not null "
                                 "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
                                 "group by compute_node order by mean_energy_j desc"
@@ -408,7 +407,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "joule"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
                 },
                 {
@@ -429,8 +428,7 @@ class GrafanaProvisioner:
                                 "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
                                 "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
                                 "canonical as (select * from ranked where rn = 1) "
-                                "select compute_node, avg(mean_power_w)::double precision as mean_power_w, "
-                                "count(*)::bigint as runs from canonical "
+                                "select compute_node, avg(mean_power_w)::double precision as mean_power_w from canonical "
                                 "where compute_node is not null and mean_power_w is not null "
                                 "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
                                 "group by compute_node order by mean_power_w desc"
@@ -439,7 +437,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "watt"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
                 },
                 {
@@ -460,8 +458,7 @@ class GrafanaProvisioner:
                                 "coalesce(max_elapsed_time_s, 0) desc, coalesce(sample_count, 0) desc, processed_at desc) as rn "
                                 "from benchmark_jobs where $__timeFilter(coalesce(measured_at, processed_at))), "
                                 "canonical as (select * from ranked where rn = 1) "
-                                "select compute_node, avg(max_elapsed_time_s)::double precision as mean_elapsed_time_s, "
-                                "count(*)::bigint as runs from canonical "
+                                "select compute_node, avg(max_elapsed_time_s)::double precision as mean_elapsed_time_s from canonical "
                                 "where compute_node is not null and max_elapsed_time_s is not null "
                                 "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
                                 "group by compute_node order by mean_elapsed_time_s desc"
@@ -470,7 +467,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
                 },
                 {
@@ -572,8 +569,7 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select l.compute_node, avg(l.dp_mflops)::double precision as mean_dp_mflops, "
-                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "select l.compute_node, avg(l.dp_mflops)::double precision as mean_dp_mflops from benchmark_likwid_samples l "
                                 "join benchmark_jobs j on j.object_key = l.h5_object_key "
                                 "where l.compute_node is not null and l.dp_mflops is not null "
                                 "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
@@ -584,7 +580,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "Mflops"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 46},
                 },
                 {
@@ -598,8 +594,7 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select l.compute_node, avg(l.dp_mflops / nullif(j.mean_power_w, 0))::double precision as mean_mflops_per_watt, "
-                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "select l.compute_node, avg(l.dp_mflops / nullif(j.mean_power_w, 0))::double precision as mean_mflops_per_watt from benchmark_likwid_samples l "
                                 "join benchmark_jobs j on j.object_key = l.h5_object_key "
                                 "where l.compute_node is not null and l.dp_mflops is not null and j.mean_power_w is not null "
                                 "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
@@ -610,7 +605,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 46},
                 },
                 {
@@ -624,8 +619,7 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select l.compute_node, avg(l.vectorization_ratio_pct)::double precision as mean_vectorization_pct, "
-                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "select l.compute_node, avg(l.vectorization_ratio_pct)::double precision as mean_vectorization_pct from benchmark_likwid_samples l "
                                 "join benchmark_jobs j on j.object_key = l.h5_object_key "
                                 "where l.compute_node is not null and l.vectorization_ratio_pct is not null "
                                 "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
@@ -636,7 +630,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 16, "y": 46},
                 },
                 {
@@ -650,8 +644,7 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select l.compute_node, avg(l.cpi)::double precision as mean_cpi, "
-                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "select l.compute_node, avg(l.cpi)::double precision as mean_cpi from benchmark_likwid_samples l "
                                 "join benchmark_jobs j on j.object_key = l.h5_object_key "
                                 "where l.compute_node is not null and l.cpi is not null "
                                 "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
@@ -662,7 +655,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 0, "y": 54},
                 },
                 {
@@ -676,8 +669,7 @@ class GrafanaProvisioner:
                             "datasource": {"uid": datasource_uid, "type": "postgres"},
                             "format": "table",
                             "rawSql": (
-                                "select l.compute_node, avg(j.total_cost_eur / nullif((l.dp_mflops * l.elapsed_time_s / 1000.0), 0))::double precision as mean_eur_per_gflop, "
-                                "count(distinct l.job_id)::bigint as jobs from benchmark_likwid_samples l "
+                                "select l.compute_node, avg(j.total_cost_eur / nullif((l.dp_mflops * l.elapsed_time_s / 1000.0), 0))::double precision as mean_eur_per_gflop from benchmark_likwid_samples l "
                                 "join benchmark_jobs j on j.object_key = l.h5_object_key "
                                 "where l.compute_node is not null and l.dp_mflops is not null and l.elapsed_time_s is not null and j.total_cost_eur is not null "
                                 "and $__timeFilter(coalesce(j.measured_at, j.processed_at)) "
@@ -688,7 +680,7 @@ class GrafanaProvisioner:
                         }
                     ],
                     "fieldConfig": {"defaults": {"unit": "currencyEUR"}, "overrides": []},
-                    "options": {"orientation": "auto", "xField": "compute_node"},
+                    "options": {"orientation": "auto", "showValue": "always", "xField": "compute_node"},
                     "gridPos": {"h": 8, "w": 8, "x": 8, "y": 54},
                 },
                 {

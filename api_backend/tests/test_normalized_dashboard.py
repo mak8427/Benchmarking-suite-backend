@@ -273,6 +273,13 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
     assert "benchmark_likwid_samples" in panels_by_title["LIKWID Node Efficiency Summary"]["targets"][0]["rawSql"]
     assert "dp_mflops / nullif(j.mean_power_w, 0)" in panels_by_title["LIKWID DP MFLOP/s per Watt"]["targets"][0]["rawSql"]
     assert "j.total_cost_eur / nullif" in panels_by_title["LIKWID Cost per GFLOP"]["targets"][0]["rawSql"]
+    for panel in dashboard["panels"]:
+        if panel["type"] != "barchart":
+            continue
+        panel_sql = panel["targets"][0]["rawSql"]
+        assert " as jobs" not in panel_sql
+        assert " as runs" not in panel_sql
+        assert panel["options"]["showValue"] == "always"
 
 
 def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
