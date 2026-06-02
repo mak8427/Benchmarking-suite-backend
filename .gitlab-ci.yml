@@ -41,6 +41,15 @@ pytest:
     - pip install pytest
     - pytest api_backend/tests
 
+analysis_pipeline:
+  stage: test
+  needs:
+    - lint
+  <<: *setup
+  script:
+    - pip install pytest
+    - pytest api_backend/tests/test_analysis_pipeline_e2e.py api_backend/tests/test_normalized_dashboard.py -v --tb=short
+
 instance_smoke:
   stage: remote
   tags:

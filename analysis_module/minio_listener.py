@@ -36,10 +36,21 @@ def launch_job(bucket: str, key: str) -> None:
         listener_event=launch_job bucket=bench key=sample.h5 rc=0 cmd=kubectl create job duckdb-...
         >>> calls["command"][:3]
         ['kubectl', 'create', 'job']
+        >>> "analysis_module.pipeline_runner" in calls["command"][-1]
+        True
         >>> mod.subprocess.run = old_run
     """
     image = os.getenv("ANALYSIS_JOB_IMAGE", "localhost/duckdb-analysis:latest")
     job_name = f"duckdb-{int(time.time())}"
+    object_prefix = key.rsplit("/", 1)[0] if "/" in key else key
+    shell_command = " ".join(
+        [
+            "export S3_SYNC=1;",
+            f"export S3_BUCKET={shlex.quote(bucket)};",
+            f"export S3_OBJECT_PREFIX={shlex.quote(object_prefix)};",
+            "python -m analysis_module.pipeline_runner --allow-missing-source",
+        ]
+    )
     command = [
         "kubectl",
         "create",
@@ -47,8 +58,9 @@ def launch_job(bucket: str, key: str) -> None:
         job_name,
         f"--image={image}",
         "--",
-        "python",
-        "analysis_module/duckdb_analysis.py",
+        "sh",
+        "-lc",
+        shell_command,
     ]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     print(
