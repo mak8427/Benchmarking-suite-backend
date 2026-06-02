@@ -229,6 +229,56 @@ async def test_presign_propagates_storage_errors(client, storage_clients) -> Non
 
 
 @pytest.mark.anyio
+async def test_presign_reports_object_quota(client, storage_clients, monkeypatch) -> None:
+    """Quota failures should expose enough detail for CLI diagnostics."""
+    _, admin_client = storage_clients
+    monkeypatch.setattr(main, "MAX_OBJECTS_PER_USER", 2)
+    admin_client.list_objects_response = [SimpleNamespace(size=1), SimpleNamespace(size=1)]
+    access, _ = await register_and_get_token(client)
+
+    response = await client.post(
+        "/files/presign/upload",
+        params={"filename": "report.csv"},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == {
+        "error": "object_quota_exceeded",
+        "message": "Object quota exceeded.",
+        "used": 2,
+        "limit": 2,
+        "remaining": 0,
+        "unit": "objects",
+    }
+
+
+@pytest.mark.anyio
+async def test_presign_reports_storage_quota(client, storage_clients, monkeypatch) -> None:
+    """Byte quota failures should include current usage and limit."""
+    _, admin_client = storage_clients
+    monkeypatch.setattr(main, "MAX_STORAGE_BYTES_PER_USER", 5)
+    admin_client.list_objects_response = [SimpleNamespace(size=3), SimpleNamespace(size=2)]
+    access, _ = await register_and_get_token(client)
+
+    response = await client.post(
+        "/files/presign/upload",
+        params={"filename": "report.csv"},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == {
+        "error": "storage_quota_exceeded",
+        "message": "Storage quota exceeded.",
+        "used": 5,
+        "limit": 5,
+        "remaining": 0,
+        "unit": "bytes",
+    }
+
+
+@pytest.mark.anyio
 async def test_presign_download_returns_url(client, storage_clients) -> None:
     """Verify download presign returns URL for user-owned keys.
 

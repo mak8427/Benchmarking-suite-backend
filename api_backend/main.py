@@ -327,12 +327,26 @@ def _enforce_upload_quota(user_id: str, admin_client: Any) -> None:
     if count >= MAX_OBJECTS_PER_USER:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Object quota exceeded.",
+            detail={
+                "error": "object_quota_exceeded",
+                "message": "Object quota exceeded.",
+                "used": count,
+                "limit": MAX_OBJECTS_PER_USER,
+                "remaining": 0,
+                "unit": "objects",
+            },
         )
     if total_bytes >= MAX_STORAGE_BYTES_PER_USER:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Storage quota exceeded.",
+            detail={
+                "error": "storage_quota_exceeded",
+                "message": "Storage quota exceeded.",
+                "used": total_bytes,
+                "limit": MAX_STORAGE_BYTES_PER_USER,
+                "remaining": 0,
+                "unit": "bytes",
+            },
         )
 
 
