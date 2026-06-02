@@ -150,7 +150,9 @@ def fetch_smard_prices(
         logger.warning("No SMARD price rows retrieved for requested interval.")
         return None
 
-    price_df = pl.DataFrame(rows, schema=["EpochTime_ms", "Price_EUR_per_MWh"])
+    price_df = pl.DataFrame(
+        rows, schema=["EpochTime_ms", "Price_EUR_per_MWh"], orient="row"
+    )
     price_df = price_df.with_columns(
         (pl.col("EpochTime_ms") // 1000).cast(pl.Int64).alias("EpochTime"),
         pl.col("Price_EUR_per_MWh").cast(pl.Float64),
