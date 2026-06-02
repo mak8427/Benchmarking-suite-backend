@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from api_backend.db import record_storage_object
+from api_backend.db import create_user, list_users, record_storage_object
 from analysis_module.connectors.normalized import (
     build_dashboard_samples,
     derive_job_metadata,
@@ -112,6 +112,16 @@ def test_prepare_postgres_normalized_schema_noops_without_password(monkeypatch) 
     monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
 
     prepare_postgres_normalized_schema()
+
+
+def test_list_users_orders_by_creation_time() -> None:
+    """Maintenance scripts should be able to target every backend user."""
+    first = create_user("dashboard_user_a", "hash")
+    second = create_user("dashboard_user_b", "hash")
+
+    users = list_users()
+
+    assert [first["username"], second["username"]] == [user["username"] for user in users[-2:]]
 
 
 def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:

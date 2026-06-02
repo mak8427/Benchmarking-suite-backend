@@ -216,6 +216,15 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return dict(row)
 
 
+def list_users() -> list[dict[str, Any]]:
+    """Return all backend users ordered by creation time."""
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT id, username, pw_hash, created_at FROM users ORDER BY created_at, username"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def record_storage_object(
     *,
     object_key: str,
