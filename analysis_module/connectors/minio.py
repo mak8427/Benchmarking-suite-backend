@@ -39,7 +39,9 @@ def resolve_minio_settings() -> dict[str, str | bool]:
     so older deployments can roll forward without changing every script at once.
     """
     access = _setting("S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", "MINIO_ACCESS_KEY")
-    secret = _setting("S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY")
+    secret = _setting(
+        "S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY"
+    )
     endpoint = _setting(
         "S3_ENDPOINT_URL",
         "AWS_ENDPOINT_URL_S3",
@@ -49,7 +51,10 @@ def resolve_minio_settings() -> dict[str, str | bool]:
         "MINIO_ENDPOINT",
         default="https://s3.gwdg.de",
     )
-    bucket = _setting("S3_BUCKET", "MINIO_BUCKET", default="benchmarking-suite") or "benchmarking-suite"
+    bucket = (
+        _setting("S3_BUCKET", "MINIO_BUCKET", default="benchmarking-suite")
+        or "benchmarking-suite"
+    )
     prefix = _setting("S3_OBJECT_PREFIX", "MINIO_OBJECT_PREFIX", default="") or ""
     if prefix.startswith("/"):
         prefix = prefix[1:]
@@ -63,13 +68,16 @@ def resolve_minio_settings() -> dict[str, str | bool]:
         "bucket": bucket,
         "prefix": prefix,
         "secure": _normalize_endpoint_url(endpoint).startswith("https://"),
-        "region": _setting("S3_REGION", "AWS_DEFAULT_REGION", default="us-east-1") or "us-east-1",
+        "region": _setting("S3_REGION", "AWS_DEFAULT_REGION", default="us-east-1")
+        or "us-east-1",
     }
 
 
 def build_minio_client(settings: dict[str, str | bool]) -> S3StorageClient:
     """Construct an S3-compatible client from settings."""
-    missing = [name for name in ("endpoint", "access", "secret") if not settings.get(name)]
+    missing = [
+        name for name in ("endpoint", "access", "secret") if not settings.get(name)
+    ]
     if missing:
         raise RuntimeError(
             "Missing S3 configuration for: "
@@ -89,21 +97,30 @@ def build_minio_client(settings: dict[str, str | bool]) -> S3StorageClient:
     )
 
 
-def list_minio_objects(client: Any, bucket: str, prefix: str, *, logger) -> List[str]:
-    """Return `.h5` object names under a bucket/prefix."""
+def list_minio_objects(
+    client: Any,
+    bucket: str,
+    prefix: str,
+    *,
+    logger,
+    suffixes: tuple[str, ...] = (".h5",),
+) -> List[str]:
+    """Return object names under a bucket/prefix matching suffixes."""
     objects: List[str] = []
     try:
         for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
-            if obj.object_name.endswith(".h5"):
+            if obj.object_name.endswith(suffixes):
                 objects.append(obj.object_name)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError("Unable to enumerate objects for processing") from exc
     return objects
 
 
-def download_minio_object(client: Any, bucket: str, object_name: str, *, logger) -> Path:
+def download_minio_object(
+    client: Any, bucket: str, object_name: str, *, logger
+) -> Path:
     """Download an object to a temp file and return its path."""
-    tmp = NamedTemporaryFile(delete=False, suffix=".h5")
+    tmp = NamedTemporaryFile(delete=False, suffix=Path(object_name).suffix or ".tmp")
     tmp.close()
     try:
         client.fget_object(bucket, object_name, tmp.name)
@@ -115,5 +132,9 @@ def download_minio_object(client: Any, bucket: str, object_name: str, *, logger)
 
 def log_minio_connection(settings: dict[str, str | bool], *, logger) -> None:
     """Emit basic connection info with masked secrets."""
-    logger.info("Connecting to S3 endpoint %s secure=%s", settings["endpoint"], settings["secure"])
+    logger.info(
+        "Connecting to S3 endpoint %s secure=%s",
+        settings["endpoint"],
+        settings["secure"],
+    )
     logger.info("Using access key: %s", _mask_secret(settings["access"]))

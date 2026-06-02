@@ -11,11 +11,26 @@ import duckdb
 
 from analysis_module.connectors.db import setup_duckdb_with_postgres
 from analysis_module.connectors.discovery import discover_h5_files
-from analysis_module.connectors.minio import build_minio_client, log_minio_connection, resolve_minio_settings
-from analysis_module.connectors.normalized import prepare_postgres_normalized_schema, ensure_normalized_schema, write_dashboard_tables
+from analysis_module.connectors.minio import (
+    build_minio_client,
+    log_minio_connection,
+    resolve_minio_settings,
+)
+from analysis_module.connectors.normalized import (
+    prepare_postgres_normalized_schema,
+    ensure_normalized_schema,
+    write_dashboard_tables,
+)
 from analysis_module.processing.h5_processing import HDF5OpenError, h5_to_dataframe
+from analysis_module.processing.likwid_ingestion import ingest_related_likwid_objects
 from analysis_module.utils.common import validate_h5_file
-from analysis_module.pipeline_core import PipelineConfig, build_parser, configure_logging, ensure_directories, validate_source
+from analysis_module.pipeline_core import (
+    PipelineConfig,
+    build_parser,
+    configure_logging,
+    ensure_directories,
+    validate_source,
+)
 from analysis_module.pipeline_core.data_loader import sanitize_parts
 
 
@@ -24,6 +39,8 @@ def process_file(
     file_label: str,
     file_path: Path,
     config: PipelineConfig,
+    minio_client: object | None = None,
+    minio_settings: dict[str, str | bool] | None = None,
     *,
     logger,
 ) -> None:
@@ -58,19 +75,25 @@ def process_file(
         return
 
     try:
-        dataframe = h5_to_dataframe(file_path, config=config, logger=logger, display_name=file_label)
+        dataframe = h5_to_dataframe(
+            file_path, config=config, logger=logger, display_name=file_label
+        )
     except HDF5OpenError as exc:
         logger.error("Skipping %s due to unreadable HDF5: %s", file_label, exc)
         return
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Skipping %s due to unexpected processing error: %s", file_label, exc)
+        logger.exception(
+            "Skipping %s due to unexpected processing error: %s", file_label, exc
+        )
         return
 
     if dataframe is None or dataframe.is_empty():
         logger.error("Skipping %s: no usable data produced", file_label)
         return
 
-    logger.info("⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start)
+    logger.info(
+        "⏱️  h5_to_dataframe took %.3f seconds", time.perf_counter() - file_start
+    )
 
     table_suffix = sanitize_parts([file_label])
     table_name = f"job_{table_suffix}"
@@ -90,27 +113,48 @@ def process_file(
             )
             con.register(df_name, dataframe.to_pandas())
 
-        logger.info("⏱️  DataFrame registration took %.3f seconds", time.perf_counter() - register_start)
+        logger.info(
+            "⏱️  DataFrame registration took %.3f seconds",
+            time.perf_counter() - register_start,
+        )
 
         logger.info("Dropping existing PostgreSQL table if present...")
         drop_start = time.perf_counter()
         con.execute(f"DROP TABLE IF EXISTS pg.public.{table_name};")
-        logger.info("⏱️  DROP TABLE took %.3f seconds", time.perf_counter() - drop_start)
+        logger.info(
+            "⏱️  DROP TABLE took %.3f seconds", time.perf_counter() - drop_start
+        )
 
         logger.info("Creating PostgreSQL table from dataframe...")
         create_start = time.perf_counter()
         con.execute(f"CREATE TABLE pg.public.{table_name} AS SELECT * FROM {df_name};")
-        logger.info("⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start)
+        logger.info(
+            "⏱️  CREATE TABLE took %.3f seconds", time.perf_counter() - create_start
+        )
 
         logger.info("Writing normalized dashboard tables...")
         dashboard_start = time.perf_counter()
         write_dashboard_tables(con, dataframe, file_label=file_label, logger=logger)
-        logger.info("⏱️  Dashboard table write took %.3f seconds", time.perf_counter() - dashboard_start)
+        if minio_client and minio_settings:
+            ingest_related_likwid_objects(
+                con,
+                dataframe,
+                h5_file_label=file_label,
+                minio_client=minio_client,
+                minio_settings=minio_settings,
+                logger=logger,
+            )
+        logger.info(
+            "⏱️  Dashboard table write took %.3f seconds",
+            time.perf_counter() - dashboard_start,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to materialize table %s: %s", table_name, exc)
         return
 
-    logger.info("⏱️  Total file processing took %.3f seconds", time.perf_counter() - file_start)
+    logger.info(
+        "⏱️  Total file processing took %.3f seconds", time.perf_counter() - file_start
+    )
 
 
 def run_pipeline() -> None:
@@ -138,13 +182,18 @@ def run_pipeline() -> None:
         for b in minio_client.list_buckets():
             logger.info("Bucket detected: %s", b.name)
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError("Unable to list buckets - verify access key/secret pair.") from exc
+        raise RuntimeError(
+            "Unable to list buckets - verify access key/secret pair."
+        ) from exc
 
     logger.info("Step 1/4: validating configuration and preparing directories.")
     step_start = time.perf_counter()
     validate_source(config)
     ensure_directories(config)
-    logger.info("⏱️  Configuration validation took %.3f seconds", time.perf_counter() - step_start)
+    logger.info(
+        "⏱️  Configuration validation took %.3f seconds",
+        time.perf_counter() - step_start,
+    )
 
     h5_files: List[Tuple[str, Path]] = discover_h5_files(
         config, minio_client=minio_client, minio_settings=minio_settings, logger=logger
@@ -153,18 +202,33 @@ def run_pipeline() -> None:
     logger.info("Step 3/4: Processing HDF5 files...")
     step3_start = time.perf_counter()
     prepare_postgres_normalized_schema()
-    con = setup_duckdb_with_postgres(password=os.getenv("POSTGRES_PASSWORD", ""), logger=logger)
+    con = setup_duckdb_with_postgres(
+        password=os.getenv("POSTGRES_PASSWORD", ""), logger=logger
+    )
     ensure_normalized_schema(con)
 
     for idx, (file_label, file_path) in enumerate(h5_files, 1):
         logger.info("=" * 60)
         logger.info("Processing file %d/%d: %s", idx, len(h5_files), file_label)
-        process_file(con, file_label, file_path, config, logger=logger)
+        process_file(
+            con,
+            file_label,
+            file_path,
+            config,
+            minio_client,
+            minio_settings,
+            logger=logger,
+        )
 
-    logger.info("⏱️  Step 3 (all files) took %.3f seconds", time.perf_counter() - step3_start)
+    logger.info(
+        "⏱️  Step 3 (all files) took %.3f seconds", time.perf_counter() - step3_start
+    )
     logger.info("=" * 60)
     logger.info("🎉 Pipeline completed successfully!")
-    logger.info("⏱️  Total pipeline execution took %.3f seconds", time.perf_counter() - pipeline_start)
+    logger.info(
+        "⏱️  Total pipeline execution took %.3f seconds",
+        time.perf_counter() - pipeline_start,
+    )
 
 
 if __name__ == "__main__":

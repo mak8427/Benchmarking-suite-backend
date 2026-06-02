@@ -74,7 +74,9 @@ def launch_job(bucket: str, key: str) -> None:
         print(result.stderr)
 
 
-async def _handle_minio_event(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def _handle_minio_event(
+    request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
     """Parse a MinIO webhook payload and enqueue a job.
 
     Args:
@@ -105,7 +107,7 @@ async def _handle_minio_event(request: Request, background_tasks: BackgroundTask
         key = s3.get("object", {}).get("key")
         if not bucket or not key:
             continue
-        if not key.endswith(".h5"):
+        if not key.endswith((".h5", ".csv", ".err")):
             continue
         background_tasks.add_task(launch_job, bucket, key)
         scheduled += 1
@@ -129,7 +131,9 @@ async def healthz() -> dict[str, str]:
 
 
 @app.post("/minio-event")
-async def minio_event(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def minio_event(
+    request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
     """Primary MinIO notification endpoint.
 
     Args:
@@ -151,7 +155,9 @@ async def minio_event(request: Request, background_tasks: BackgroundTasks) -> di
 
 
 @app.post("/minio")
-async def minio_legacy(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def minio_legacy(
+    request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
     """Legacy MinIO endpoint kept for backward compatibility.
 
     Args:

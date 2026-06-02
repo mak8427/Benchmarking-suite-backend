@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
 import polars as pl
+import pytest
 
 from api_backend.db import create_user, list_users, record_storage_object
 from analysis_module.connectors.normalized import (
@@ -35,6 +38,43 @@ class FakeGrafanaClient:
     def request(self, method, url, **kwargs):
         self.requests.append({"method": method, "url": url, **kwargs})
         return FakeGrafanaResponse()
+
+
+def _dashboard() -> dict:
+    client = FakeGrafanaClient()
+    provisioner = GrafanaProvisioner(
+        settings=GrafanaSettings(
+            url="http://grafana.local",
+            admin_user="admin",
+            admin_password="secret",
+            postgres_host="postgres",
+            postgres_port="5432",
+            postgres_db="benchmarks",
+            postgres_admin_user="postgres",
+            postgres_admin_password="postgres",
+        ),
+        client=client,
+    )
+    provisioner.ensure_dashboard(user_id="user-1", org_id=7)
+    return client.requests[0]["json"]["dashboard"]
+
+
+def _panel_sql(dashboard: dict, title: str) -> str:
+    for panel in dashboard["panels"]:
+        if panel["title"] == title:
+            return panel["targets"][0]["rawSql"]
+    raise AssertionError(f"panel not found: {title}")
+
+
+def _render_trace_sql(sql: str, *, benchmark: str = "%", job_trace: str = "%") -> str:
+    return (
+        sql.replace(
+            "$__unixEpochFilter(s.epoch_time)",
+            "(s.epoch_time >= 1700000000 AND s.epoch_time <= 1700000100)",
+        )
+        .replace("${benchmark:raw}", benchmark)
+        .replace("${job_trace:raw}", job_trace)
+    )
 
 
 def test_infer_owner_metadata_uses_recorded_storage_object() -> None:
@@ -100,7 +140,9 @@ def test_compute_energy_profile_handles_missing_cumulative_energy() -> None:
     """Files with null cumulative energy should not crash normalization."""
     frame = pl.DataFrame({"ElapsedTime": [0.0, 1.0], "Energy": [None, None]})
 
-    output, metrics = compute_energy_profile(frame, "job-1", "node-1", logger=SilentLogger())
+    output, metrics = compute_energy_profile(
+        frame, "job-1", "node-1", logger=SilentLogger()
+    )
 
     assert output.height == 2
     assert metrics is not None
@@ -121,7 +163,9 @@ def test_list_users_orders_by_creation_time() -> None:
 
     users = list_users()
 
-    assert [first["username"], second["username"]] == [user["username"] for user in users[-2:]]
+    assert [first["username"], second["username"]] == [
+        user["username"] for user in users[-2:]
+    ]
 
 
 def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
@@ -140,31 +184,44 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
         ),
         client=client,
     )
-
     provisioner.ensure_dashboard(user_id="user-1", org_id=7)
-
     request = client.requests[0]
     dashboard = request["json"]["dashboard"]
     panel_titles = {panel["title"] for panel in dashboard["panels"]}
     panels_by_title = {panel["title"]: panel for panel in dashboard["panels"]}
-    sql = "\n".join(target["rawSql"] for panel in dashboard["panels"] for target in panel.get("targets", []))
+    sql = "\n".join(
+        target["rawSql"]
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    )
 
     assert request["method"] == "POST"
     assert request["headers"] == {"X-Grafana-Org-Id": "7"}
-    variables = {variable["name"]: variable for variable in dashboard["templating"]["list"]}
+    variables = {
+        variable["name"]: variable for variable in dashboard["templating"]["list"]
+    }
     benchmark_variable = variables["benchmark"]
     assert benchmark_variable["type"] == "query"
     assert benchmark_variable["includeAll"] is True
     assert benchmark_variable["refresh"] == 2
-    assert "select distinct coalesce(benchmark_name, 'unknown')" in benchmark_variable["query"]
+    assert (
+        "select distinct coalesce(benchmark_name, 'unknown')"
+        in benchmark_variable["query"]
+    )
     job_trace_variable = variables["job_trace"]
     assert job_trace_variable["label"] == "Job Trace"
     assert job_trace_variable["includeAll"] is True
-    assert "select distinct job_id from benchmark_jobs" in job_trace_variable["query"]
+    assert (
+        "select distinct job_id::text as job_id from benchmark_jobs"
+        in job_trace_variable["query"]
+    )
     assert "Mean Energy by Compute Node" in panel_titles
     assert "Mean Power by Compute Node" in panel_titles
     assert "Mean Elapsed Time by Compute Node" in panel_titles
-    assert "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown')" in sql
+    assert (
+        "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown')"
+        in sql
+    )
     assert "$__timeFilter(coalesce(measured_at, processed_at))" in sql
     assert "coalesce(benchmark_name, 'unknown') = '${benchmark:raw}'" in sql
     node_power_sql = panels_by_title["Node Power"]["targets"][0]["rawSql"]
@@ -177,6 +234,59 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
     )
     assert "${job_trace:raw}" in node_power_sql
     assert "${job_trace:raw}" in cumulative_energy_sql
-    assert "$__timeFilter(to_timestamp(s.epoch_time))" in node_power_sql
-    assert "$__timeFilter(to_timestamp(s.epoch_time))" in cumulative_energy_sql
+    assert "$__unixEpochFilter(s.epoch_time)" in node_power_sql
+    assert "$__unixEpochFilter(s.epoch_time)" in cumulative_energy_sql
+    assert "j.job_id::text = '${job_trace:raw}'" in node_power_sql
+    assert "j.job_id::text = '${job_trace:raw}'" in cumulative_energy_sql
     assert "${job_trace:raw}" not in summary_sql
+
+
+def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
+    """Trace SQL should render without bigint casts for job ids."""
+    dashboard = _dashboard()
+    for title in ("Node Power", "Cumulative Energy"):
+        rendered = _render_trace_sql(
+            _panel_sql(dashboard, title),
+            benchmark="coremark_mini",
+            job_trace="14038010",
+        )
+        assert "$__" not in rendered
+        assert "${" not in rendered
+        assert "s.epoch_time >= 1700000000" in rendered
+        assert "j.job_id::text = '14038010'" in rendered
+        assert "to_timestamp(s.epoch_time) as time" in rendered
+
+
+@pytest.mark.skipif(
+    not os.getenv("POSTGRES_PASSWORD"),
+    reason="Postgres SQL validation requires POSTGRES_* environment variables.",
+)
+def test_trace_panel_sql_explains_on_postgres() -> None:
+    """Rendered trace queries should be accepted by PostgreSQL."""
+    import psycopg
+
+    dashboard = _dashboard()
+    queries = [
+        _render_trace_sql(_panel_sql(dashboard, "Node Power"), job_trace="14038010"),
+        _render_trace_sql(
+            _panel_sql(dashboard, "Cumulative Energy"), job_trace="14038010"
+        ),
+    ]
+    with psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+        dbname=os.getenv("POSTGRES_DB", "postgres"),
+        user=os.getenv("POSTGRES_USER", "postgres"),
+        password=os.environ["POSTGRES_PASSWORD"],
+    ) as connection:
+        with connection.transaction():
+            connection.execute(
+                "CREATE TEMP TABLE benchmark_jobs (object_key text, original_filename text, "
+                "benchmark_name text, job_id text)"
+            )
+            connection.execute(
+                "CREATE TEMP TABLE benchmark_samples (object_key text, epoch_time bigint, "
+                "node_power double precision, energy_used_j double precision)"
+            )
+            for query in queries:
+                connection.execute(f"EXPLAIN {query}").fetchall()

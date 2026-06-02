@@ -12,6 +12,25 @@ from psycopg import errors
 
 from api_backend.db import get_storage_object, mark_storage_object_processed
 
+LIKWID_COLUMNS = [
+    "likwid_group_id",
+    "metrics_count",
+    "cpu_count",
+    "elapsed_time_s",
+    "runtime_rdtsc_s",
+    "runtime_unhalted_s",
+    "clock_mhz",
+    "cpi",
+    "dp_mflops",
+    "avx_dp_mflops",
+    "avx512_dp_mflops",
+    "packed_muops_s",
+    "scalar_muops_s",
+    "vectorization_ratio_pct",
+    "matched_energy_elapsed_time_s",
+    "matched_energy_delta_s",
+]
+
 
 def infer_owner_metadata(file_label: str) -> dict[str, str]:
     """Infer owner and object metadata for a processed file label.
@@ -23,18 +42,25 @@ def infer_owner_metadata(file_label: str) -> dict[str, str]:
     owner_user_id = file_label.split("/", 1)[0] if "/" in file_label else "unknown"
     stored = get_storage_object(object_key) if "/" in file_label else None
     return {
-        "owner_user_id": stored.get("user_id", owner_user_id) if stored else owner_user_id,
+        "owner_user_id": (
+            stored.get("user_id", owner_user_id) if stored else owner_user_id
+        ),
         "owner_username": stored.get("username", "unknown") if stored else "unknown",
         "object_key": object_key,
-        "original_filename": stored.get("original_filename", Path(file_label).name) if stored else Path(file_label).name,
-        "benchmark_name": stored.get("benchmark_name") or "unknown" if stored else "unknown",
+        "original_filename": (
+            stored.get("original_filename", Path(file_label).name)
+            if stored
+            else Path(file_label).name
+        ),
+        "benchmark_name": (
+            stored.get("benchmark_name") or "unknown" if stored else "unknown"
+        ),
     }
 
 
 def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create normalized dashboard tables and row-level security policies."""
-    con.execute(
-        """
+    con.execute("""
         CREATE TABLE IF NOT EXISTS pg.public.benchmark_jobs (
             object_key TEXT PRIMARY KEY,
             owner_user_id TEXT NOT NULL,
@@ -51,10 +77,8 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             compute_node TEXT,
             benchmark_name TEXT
         );
-        """
-    )
-    con.execute(
-        """
+        """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS pg.public.benchmark_samples (
             object_key TEXT NOT NULL,
             owner_user_id TEXT NOT NULL,
@@ -65,8 +89,38 @@ def ensure_normalized_schema(con: duckdb.DuckDBPyConnection) -> None:
             energy_increment_j DOUBLE PRECISION,
             cpu_utilization DOUBLE PRECISION
         );
-        """
-    )
+        """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS pg.public.benchmark_likwid_samples (
+            source_object_key TEXT NOT NULL,
+            h5_object_key TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            owner_username TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            job_id TEXT,
+            compute_node TEXT,
+            benchmark_name TEXT,
+            source_kind TEXT NOT NULL,
+            sample_index BIGINT NOT NULL,
+            likwid_group_id BIGINT,
+            metrics_count BIGINT,
+            cpu_count BIGINT,
+            elapsed_time_s DOUBLE PRECISION,
+            runtime_rdtsc_s DOUBLE PRECISION,
+            runtime_unhalted_s DOUBLE PRECISION,
+            clock_mhz DOUBLE PRECISION,
+            cpi DOUBLE PRECISION,
+            dp_mflops DOUBLE PRECISION,
+            avx_dp_mflops DOUBLE PRECISION,
+            avx512_dp_mflops DOUBLE PRECISION,
+            packed_muops_s DOUBLE PRECISION,
+            scalar_muops_s DOUBLE PRECISION,
+            vectorization_ratio_pct DOUBLE PRECISION,
+            matched_energy_elapsed_time_s DOUBLE PRECISION,
+            matched_energy_delta_s DOUBLE PRECISION,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """)
     apply_postgres_schema_migrations()
     apply_postgres_security()
 
@@ -84,8 +138,7 @@ def prepare_postgres_normalized_schema() -> None:
         password=password,
         autocommit=True,
     ) as connection:
-        connection.execute(
-            """
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS public.benchmark_jobs (
                 object_key TEXT PRIMARY KEY,
                 owner_user_id TEXT NOT NULL,
@@ -102,10 +155,8 @@ def prepare_postgres_normalized_schema() -> None:
                 compute_node TEXT,
                 benchmark_name TEXT
             )
-            """
-        )
-        connection.execute(
-            """
+            """)
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS public.benchmark_samples (
                 object_key TEXT NOT NULL,
                 owner_user_id TEXT NOT NULL,
@@ -116,8 +167,38 @@ def prepare_postgres_normalized_schema() -> None:
                 energy_increment_j DOUBLE PRECISION,
                 cpu_utilization DOUBLE PRECISION
             )
-            """
-        )
+            """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS public.benchmark_likwid_samples (
+                source_object_key TEXT NOT NULL,
+                h5_object_key TEXT NOT NULL,
+                owner_user_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                job_id TEXT,
+                compute_node TEXT,
+                benchmark_name TEXT,
+                source_kind TEXT NOT NULL,
+                sample_index BIGINT NOT NULL,
+                likwid_group_id BIGINT,
+                metrics_count BIGINT,
+                cpu_count BIGINT,
+                elapsed_time_s DOUBLE PRECISION,
+                runtime_rdtsc_s DOUBLE PRECISION,
+                runtime_unhalted_s DOUBLE PRECISION,
+                clock_mhz DOUBLE PRECISION,
+                cpi DOUBLE PRECISION,
+                dp_mflops DOUBLE PRECISION,
+                avx_dp_mflops DOUBLE PRECISION,
+                avx512_dp_mflops DOUBLE PRECISION,
+                packed_muops_s DOUBLE PRECISION,
+                scalar_muops_s DOUBLE PRECISION,
+                vectorization_ratio_pct DOUBLE PRECISION,
+                matched_energy_elapsed_time_s DOUBLE PRECISION,
+                matched_energy_delta_s DOUBLE PRECISION,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """)
     apply_postgres_schema_migrations()
     apply_postgres_security()
 
@@ -135,11 +216,21 @@ def apply_postgres_schema_migrations() -> None:
         password=password,
         autocommit=True,
     ) as connection:
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS measured_at TIMESTAMPTZ")
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS mean_power_w DOUBLE PRECISION")
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT")
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS compute_node TEXT")
-        connection.execute("ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS benchmark_name TEXT")
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS measured_at TIMESTAMPTZ"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS mean_power_w DOUBLE PRECISION"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS job_id TEXT"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS compute_node TEXT"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ADD COLUMN IF NOT EXISTS benchmark_name TEXT"
+        )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS benchmark_jobs_benchmark_node_time_idx "
             "ON public.benchmark_jobs (benchmark_name, compute_node, measured_at)"
@@ -151,6 +242,15 @@ def apply_postgres_schema_migrations() -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS benchmark_samples_object_epoch_idx "
             "ON public.benchmark_samples (object_key, epoch_time)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS benchmark_likwid_job_elapsed_idx "
+            "ON public.benchmark_likwid_samples "
+            "(owner_user_id, job_id, compute_node, benchmark_name, elapsed_time_s)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS benchmark_likwid_source_idx "
+            "ON public.benchmark_likwid_samples (source_object_key, h5_object_key)"
         )
 
 
@@ -167,11 +267,19 @@ def apply_postgres_security() -> None:
         password=password,
         autocommit=True,
     ) as connection:
-        connection.execute("ALTER TABLE public.benchmark_jobs ENABLE ROW LEVEL SECURITY")
-        connection.execute("ALTER TABLE public.benchmark_samples ENABLE ROW LEVEL SECURITY")
+        connection.execute(
+            "ALTER TABLE public.benchmark_jobs ENABLE ROW LEVEL SECURITY"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_samples ENABLE ROW LEVEL SECURITY"
+        )
+        connection.execute(
+            "ALTER TABLE public.benchmark_likwid_samples ENABLE ROW LEVEL SECURITY"
+        )
         for policy, table_name in (
             ("benchmark_jobs_owner", "benchmark_jobs"),
             ("benchmark_samples_owner", "benchmark_samples"),
+            ("benchmark_likwid_samples_owner", "benchmark_likwid_samples"),
         ):
             try:
                 connection.execute(
@@ -180,12 +288,19 @@ def apply_postgres_security() -> None:
                 )
             except errors.DuplicateObject:
                 pass
-        roles = connection.execute("SELECT rolname FROM pg_roles WHERE rolname LIKE 'bench_user_%'").fetchall()
+        roles = connection.execute(
+            "SELECT rolname FROM pg_roles WHERE rolname LIKE 'bench_user_%'"
+        ).fetchall()
         for (role,) in roles:
             safe_role = '"' + role.replace('"', '""') + '"'
             connection.execute(f"GRANT USAGE ON SCHEMA public TO {safe_role}")
             connection.execute(f"GRANT SELECT ON public.benchmark_jobs TO {safe_role}")
-            connection.execute(f"GRANT SELECT ON public.benchmark_samples TO {safe_role}")
+            connection.execute(
+                f"GRANT SELECT ON public.benchmark_samples TO {safe_role}"
+            )
+            connection.execute(
+                f"GRANT SELECT ON public.benchmark_likwid_samples TO {safe_role}"
+            )
 
 
 def _first_existing(df: pl.DataFrame, candidates: list[str]) -> str | None:
@@ -212,10 +327,14 @@ def derive_job_metadata(original_filename: str) -> dict[str, str]:
 def build_dashboard_samples(df: pl.DataFrame, metadata: dict[str, str]) -> pl.DataFrame:
     """Convert a processed dataframe into stable dashboard sample rows."""
     elapsed = _first_existing(df, ["ElapsedTime"])
-    node_power = _first_existing(df, ["NodePower", "Energy__NodePower", "Node__NodePower"])
+    node_power = _first_existing(
+        df, ["NodePower", "Energy__NodePower", "Node__NodePower"]
+    )
     energy_used = _first_existing(df, ["Energy_used_J"])
     energy_increment = _first_existing(df, ["Energy_Increment_J"])
-    epoch_time = _first_existing(df, ["EpochTime", "Energy__EpochTime", "Node__EpochTime"])
+    epoch_time = _first_existing(
+        df, ["EpochTime", "Energy__EpochTime", "Node__EpochTime"]
+    )
     cpu_utilization = _first_existing(df, ["CPUUtilization", "Node__CPUUtilization"])
 
     if not elapsed:
@@ -225,15 +344,31 @@ def build_dashboard_samples(df: pl.DataFrame, metadata: dict[str, str]) -> pl.Da
         pl.lit(metadata["object_key"]).alias("object_key"),
         pl.lit(metadata["owner_user_id"]).alias("owner_user_id"),
         pl.col(elapsed).cast(pl.Float64).alias("elapsed_time"),
-        pl.col(epoch_time).cast(pl.Int64).alias("epoch_time") if epoch_time else pl.lit(None).cast(pl.Int64).alias("epoch_time"),
-        pl.col(node_power).cast(pl.Float64).alias("node_power") if node_power else pl.lit(None).cast(pl.Float64).alias("node_power"),
-        pl.col(energy_used).cast(pl.Float64).alias("energy_used_j") if energy_used else pl.lit(None).cast(pl.Float64).alias("energy_used_j"),
-        pl.col(energy_increment).cast(pl.Float64).alias("energy_increment_j")
-        if energy_increment
-        else pl.lit(None).cast(pl.Float64).alias("energy_increment_j"),
-        pl.col(cpu_utilization).cast(pl.Float64).alias("cpu_utilization")
-        if cpu_utilization
-        else pl.lit(None).cast(pl.Float64).alias("cpu_utilization"),
+        (
+            pl.col(epoch_time).cast(pl.Int64).alias("epoch_time")
+            if epoch_time
+            else pl.lit(None).cast(pl.Int64).alias("epoch_time")
+        ),
+        (
+            pl.col(node_power).cast(pl.Float64).alias("node_power")
+            if node_power
+            else pl.lit(None).cast(pl.Float64).alias("node_power")
+        ),
+        (
+            pl.col(energy_used).cast(pl.Float64).alias("energy_used_j")
+            if energy_used
+            else pl.lit(None).cast(pl.Float64).alias("energy_used_j")
+        ),
+        (
+            pl.col(energy_increment).cast(pl.Float64).alias("energy_increment_j")
+            if energy_increment
+            else pl.lit(None).cast(pl.Float64).alias("energy_increment_j")
+        ),
+        (
+            pl.col(cpu_utilization).cast(pl.Float64).alias("cpu_utilization")
+            if cpu_utilization
+            else pl.lit(None).cast(pl.Float64).alias("cpu_utilization")
+        ),
     ]
     return df.select(expressions)
 
@@ -248,10 +383,18 @@ def write_dashboard_tables(
     """Write normalized job and sample rows for Grafana dashboards."""
     metadata = infer_owner_metadata(file_label)
     samples = build_dashboard_samples(df, metadata)
-    con.execute("DELETE FROM pg.public.benchmark_samples WHERE object_key = ?", [metadata["object_key"]])
-    con.execute("DELETE FROM pg.public.benchmark_jobs WHERE object_key = ?", [metadata["object_key"]])
+    con.execute(
+        "DELETE FROM pg.public.benchmark_samples WHERE object_key = ?",
+        [metadata["object_key"]],
+    )
+    con.execute(
+        "DELETE FROM pg.public.benchmark_jobs WHERE object_key = ?",
+        [metadata["object_key"]],
+    )
     if samples.is_empty():
-        logger.warning("Skipping normalized dashboard rows for %s: no sample columns", file_label)
+        logger.warning(
+            "Skipping normalized dashboard rows for %s: no sample columns", file_label
+        )
         return
 
     job_metadata = derive_job_metadata(metadata["original_filename"])
@@ -283,20 +426,78 @@ def write_dashboard_tables(
 
     con.register("dashboard_jobs", jobs)
     con.register("dashboard_samples", samples)
-    con.execute(
-        """
+    con.execute("""
         INSERT INTO pg.public.benchmark_jobs
         (object_key, owner_user_id, owner_username, original_filename, measured_at, sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name)
         SELECT object_key, owner_user_id, owner_username, original_filename, to_timestamp(measured_epoch), sample_count, max_power_w, mean_power_w, total_energy_j, max_elapsed_time_s, job_id, compute_node, benchmark_name
         FROM dashboard_jobs;
-        """
-    )
-    con.execute(
-        """
+        """)
+    con.execute("""
         INSERT INTO pg.public.benchmark_samples
         (object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, cpu_utilization)
         SELECT object_key, owner_user_id, elapsed_time, epoch_time, node_power, energy_used_j, energy_increment_j, cpu_utilization
         FROM dashboard_samples;
-        """
-    )
+        """)
     mark_storage_object_processed(metadata["object_key"])
+
+
+def write_likwid_samples(
+    con: duckdb.DuckDBPyConnection,
+    rows: list[dict[str, float | int | str | None]],
+    *,
+    h5_file_label: str,
+    source_object_key: str,
+    source_kind: str,
+    logger,
+) -> None:
+    """Write normalized LIKWID rows matched to a processed HDF5 object."""
+    if not rows:
+        logger.info("No LIKWID rows found for %s", source_object_key)
+        return
+
+    metadata = infer_owner_metadata(h5_file_label)
+    job_metadata = derive_job_metadata(metadata["original_filename"])
+    records = []
+    for sample_index, row in enumerate(rows):
+        record = {
+            "source_object_key": source_object_key,
+            "h5_object_key": metadata["object_key"],
+            "owner_user_id": metadata["owner_user_id"],
+            "owner_username": metadata["owner_username"],
+            "original_filename": Path(source_object_key).name,
+            "job_id": job_metadata["job_id"],
+            "compute_node": job_metadata["compute_node"],
+            "benchmark_name": metadata["benchmark_name"],
+            "source_kind": source_kind,
+            "sample_index": sample_index,
+        }
+        for column in LIKWID_COLUMNS:
+            record[column] = row.get(column)
+        records.append(record)
+
+    con.execute(
+        "DELETE FROM pg.public.benchmark_likwid_samples "
+        "WHERE source_object_key = ? AND h5_object_key = ?",
+        [source_object_key, metadata["object_key"]],
+    )
+    frame = pl.DataFrame(records)
+    con.register("dashboard_likwid_samples", frame)
+    con.execute("""
+        INSERT INTO pg.public.benchmark_likwid_samples
+        (source_object_key, h5_object_key, owner_user_id, owner_username,
+         original_filename, job_id, compute_node, benchmark_name, source_kind,
+         sample_index, likwid_group_id, metrics_count, cpu_count, elapsed_time_s,
+         runtime_rdtsc_s, runtime_unhalted_s, clock_mhz, cpi, dp_mflops,
+         avx_dp_mflops, avx512_dp_mflops, packed_muops_s, scalar_muops_s,
+         vectorization_ratio_pct, matched_energy_elapsed_time_s,
+         matched_energy_delta_s)
+        SELECT source_object_key, h5_object_key, owner_user_id, owner_username,
+         original_filename, job_id, compute_node, benchmark_name, source_kind,
+         sample_index, likwid_group_id, metrics_count, cpu_count, elapsed_time_s,
+         runtime_rdtsc_s, runtime_unhalted_s, clock_mhz, cpi, dp_mflops,
+         avx_dp_mflops, avx512_dp_mflops, packed_muops_s, scalar_muops_s,
+         vectorization_ratio_pct, matched_energy_elapsed_time_s,
+         matched_energy_delta_s
+        FROM dashboard_likwid_samples;
+        """)
+    logger.info("Wrote %d LIKWID rows for %s", len(records), source_object_key)

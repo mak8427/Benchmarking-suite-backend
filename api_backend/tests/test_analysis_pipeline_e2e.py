@@ -59,7 +59,11 @@ def _write_minimal_slurm_h5(path) -> None:
         ]
     )
     rows = np.array(
-        [(0, 1_700_000_000, 10.0, 20.0), (1, 1_700_000_001, 20.0, 30.0), (2, 1_700_000_002, 30.0, 40.0)],
+        [
+            (0, 1_700_000_000, 10.0, 20.0),
+            (1, 1_700_000_001, 20.0, 30.0),
+            (2, 1_700_000_002, 30.0, 40.0),
+        ],
         dtype=dtype,
     )
     with h5py.File(path, "w") as handle:
@@ -134,8 +138,8 @@ def test_listener_launches_current_pipeline_entrypoint(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_listener_schedules_only_hdf5_objects(monkeypatch) -> None:
-    """Webhook parsing should ignore non-HDF5 uploads."""
+async def test_listener_schedules_analysis_artifacts(monkeypatch) -> None:
+    """Webhook parsing should schedule HDF5 and LIKWID analysis artifacts."""
     scheduled = []
 
     def fake_add_task(fn, *args):
@@ -147,6 +151,8 @@ async def test_listener_schedules_only_hdf5_objects(monkeypatch) -> None:
                 "Records": [
                     {"s3": {"bucket": {"name": "b"}, "object": {"key": "u/a.h5"}}},
                     {"s3": {"bucket": {"name": "b"}, "object": {"key": "u/a.out"}}},
+                    {"s3": {"bucket": {"name": "b"}, "object": {"key": "u/a.err"}}},
+                    {"s3": {"bucket": {"name": "b"}, "object": {"key": "u/a.csv"}}},
                     {"s3": {"bucket": {"name": "b"}, "object": {"key": "u/b.h5"}}},
                 ]
             }
@@ -156,5 +162,10 @@ async def test_listener_schedules_only_hdf5_objects(monkeypatch) -> None:
 
     result = await minio_listener.minio_event(Request(), tasks)
 
-    assert result == {"ok": True, "scheduled": 2}
-    assert [args for _fn, args in scheduled] == [("b", "u/a.h5"), ("b", "u/b.h5")]
+    assert result == {"ok": True, "scheduled": 4}
+    assert [args for _fn, args in scheduled] == [
+        ("b", "u/a.h5"),
+        ("b", "u/a.err"),
+        ("b", "u/a.csv"),
+        ("b", "u/b.h5"),
+    ]

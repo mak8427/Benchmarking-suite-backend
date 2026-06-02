@@ -222,7 +222,7 @@ class GrafanaProvisioner:
                         "label": "Job Trace",
                         "datasource": {"uid": datasource_uid, "type": "postgres"},
                         "query": (
-                            "select distinct job_id from benchmark_jobs "
+                            "select distinct job_id::text as job_id from benchmark_jobs "
                             "where job_id is not null "
                             "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
                             "order by 1"
@@ -495,9 +495,9 @@ class GrafanaProvisioner:
                                 "avg(s.node_power)::double precision as value "
                                 "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
                                 "where s.epoch_time is not null and s.node_power is not null "
-                                "and $__timeFilter(to_timestamp(s.epoch_time)) "
+                                "and $__unixEpochFilter(s.epoch_time) "
                                 "and ('${benchmark:raw}' = '%' or coalesce(j.benchmark_name, 'unknown') = '${benchmark:raw}') "
-                                "and ('${job_trace:raw}' = '%' or j.job_id = '${job_trace:raw}') "
+                                "and ('${job_trace:raw}' = '%' or j.job_id::text = '${job_trace:raw}') "
                                 "group by 1, 2 order by 1"
                             ),
                             "rawQuery": True,
@@ -521,9 +521,9 @@ class GrafanaProvisioner:
                                 "max(s.energy_used_j)::double precision as value "
                                 "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
                                 "where s.epoch_time is not null and s.energy_used_j is not null "
-                                "and $__timeFilter(to_timestamp(s.epoch_time)) "
+                                "and $__unixEpochFilter(s.epoch_time) "
                                 "and ('${benchmark:raw}' = '%' or coalesce(j.benchmark_name, 'unknown') = '${benchmark:raw}') "
-                                "and ('${job_trace:raw}' = '%' or j.job_id = '${job_trace:raw}') "
+                                "and ('${job_trace:raw}' = '%' or j.job_id::text = '${job_trace:raw}') "
                                 "group by 1, 2 order by 1"
                             ),
                             "rawQuery": True,
