@@ -146,18 +146,37 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
     request = client.requests[0]
     dashboard = request["json"]["dashboard"]
     panel_titles = {panel["title"] for panel in dashboard["panels"]}
+    panels_by_title = {panel["title"]: panel for panel in dashboard["panels"]}
     sql = "\n".join(target["rawSql"] for panel in dashboard["panels"] for target in panel.get("targets", []))
 
     assert request["method"] == "POST"
     assert request["headers"] == {"X-Grafana-Org-Id": "7"}
-    variable = dashboard["templating"]["list"][0]
-    assert variable["type"] == "query"
-    assert variable["includeAll"] is True
-    assert variable["refresh"] == 2
-    assert "select distinct coalesce(benchmark_name, 'unknown')" in variable["query"]
+    variables = {variable["name"]: variable for variable in dashboard["templating"]["list"]}
+    benchmark_variable = variables["benchmark"]
+    assert benchmark_variable["type"] == "query"
+    assert benchmark_variable["includeAll"] is True
+    assert benchmark_variable["refresh"] == 2
+    assert "select distinct coalesce(benchmark_name, 'unknown')" in benchmark_variable["query"]
+    job_trace_variable = variables["job_trace"]
+    assert job_trace_variable["label"] == "Job Trace"
+    assert job_trace_variable["includeAll"] is True
+    assert "select distinct job_id from benchmark_jobs" in job_trace_variable["query"]
     assert "Mean Energy by Compute Node" in panel_titles
     assert "Mean Power by Compute Node" in panel_titles
     assert "Mean Elapsed Time by Compute Node" in panel_titles
     assert "partition by coalesce(job_id, object_key), coalesce(benchmark_name, 'unknown')" in sql
     assert "$__timeFilter(coalesce(measured_at, processed_at))" in sql
     assert "coalesce(benchmark_name, 'unknown') = '${benchmark:raw}'" in sql
+    node_power_sql = panels_by_title["Node Power"]["targets"][0]["rawSql"]
+    cumulative_energy_sql = panels_by_title["Cumulative Energy"]["targets"][0]["rawSql"]
+    summary_sql = "\n".join(
+        target["rawSql"]
+        for title, panel in panels_by_title.items()
+        if title not in {"Node Power", "Cumulative Energy"}
+        for target in panel.get("targets", [])
+    )
+    assert "${job_trace:raw}" in node_power_sql
+    assert "${job_trace:raw}" in cumulative_energy_sql
+    assert "$__timeFilter(to_timestamp(s.epoch_time))" in node_power_sql
+    assert "$__timeFilter(to_timestamp(s.epoch_time))" in cumulative_energy_sql
+    assert "${job_trace:raw}" not in summary_sql

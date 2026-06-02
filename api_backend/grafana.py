@@ -215,7 +215,26 @@ class GrafanaProvisioner:
                         "multi": False,
                         "hide": 0,
                         "current": {"selected": True, "text": "All", "value": "%"},
-                    }
+                    },
+                    {
+                        "name": "job_trace",
+                        "type": "query",
+                        "label": "Job Trace",
+                        "datasource": {"uid": datasource_uid, "type": "postgres"},
+                        "query": (
+                            "select distinct job_id from benchmark_jobs "
+                            "where job_id is not null "
+                            "and ('${benchmark:raw}' = '%' or coalesce(benchmark_name, 'unknown') = '${benchmark:raw}') "
+                            "order by 1"
+                        ),
+                        "refresh": 2,
+                        "sort": 1,
+                        "includeAll": True,
+                        "allValue": "%",
+                        "multi": False,
+                        "hide": 0,
+                        "current": {"selected": True, "text": "All", "value": "%"},
+                    },
                 ]
             },
             "panels": [
@@ -476,6 +495,9 @@ class GrafanaProvisioner:
                                 "avg(s.node_power)::double precision as value "
                                 "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
                                 "where s.epoch_time is not null and s.node_power is not null "
+                                "and $__timeFilter(to_timestamp(s.epoch_time)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(j.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "and ('${job_trace:raw}' = '%' or j.job_id = '${job_trace:raw}') "
                                 "group by 1, 2 order by 1"
                             ),
                             "rawQuery": True,
@@ -499,6 +521,9 @@ class GrafanaProvisioner:
                                 "max(s.energy_used_j)::double precision as value "
                                 "from benchmark_samples s join benchmark_jobs j on j.object_key = s.object_key "
                                 "where s.epoch_time is not null and s.energy_used_j is not null "
+                                "and $__timeFilter(to_timestamp(s.epoch_time)) "
+                                "and ('${benchmark:raw}' = '%' or coalesce(j.benchmark_name, 'unknown') = '${benchmark:raw}') "
+                                "and ('${job_trace:raw}' = '%' or j.job_id = '${job_trace:raw}') "
                                 "group by 1, 2 order by 1"
                             ),
                             "rawQuery": True,
