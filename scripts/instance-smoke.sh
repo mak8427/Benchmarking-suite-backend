@@ -35,7 +35,7 @@ if not os.getenv('JWT_SECRET'):
     raise SystemExit('FAIL jwt secret missing from loaded backend environment')
 
 from api_backend import main
-if main.MAX_OBJECTS_PER_USER < 20_000:
+if main.MAX_OBJECTS_PER_USER < 100_000:
     raise SystemExit(f'FAIL object quota too low: {main.MAX_OBJECTS_PER_USER}')
 
 # The module entrypoint must run the pipeline, not import and exit.
