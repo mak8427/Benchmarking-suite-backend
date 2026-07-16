@@ -1,6 +1,7 @@
 pyjwt
 fastapi
 passlib
+argon2-cffi
 pydantic
 minio
 boto3

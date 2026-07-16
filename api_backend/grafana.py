@@ -788,6 +788,10 @@ class GrafanaProvisioner:
                 connection.execute(f"CREATE ROLE {safe_role} LOGIN PASSWORD '{password}'")
             connection.execute(f"ALTER ROLE {safe_role} SET app.user_id = '{user_literal}'")
             connection.execute(f"GRANT USAGE ON SCHEMA public TO {safe_role}")
-            for table_name in ("benchmark_jobs", "benchmark_samples"):
+            for table_name in (
+                "benchmark_jobs",
+                "benchmark_samples",
+                "benchmark_likwid_samples",
+            ):
                 if connection.execute("SELECT to_regclass(%s)", (f"public.{table_name}",)).fetchone()[0]:
                     connection.execute(f"GRANT SELECT ON public.{table_name} TO {safe_role}")

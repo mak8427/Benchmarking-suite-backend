@@ -2,6 +2,11 @@
 
 This repository contains the service side of the Benchmarking Suite. It exposes the authenticated API used by the CLI, stores uploaded benchmark artifacts in GWDG S3, processes Slurm profiling HDF5 files into PostgreSQL, and provisions per-user Grafana workspaces with row-level access control.
 
+For a new empty deployment on a blank Ubuntu VM, follow
+[`backend-from-scratch-deployment.md`](backend-from-scratch-deployment.md).
+That runbook covers PostgreSQL, Grafana, K3s/Traefik, systemd, S3 configuration,
+schema initialization, and the current limitation of Kubernetes analysis Jobs.
+
 ## System Responsibilities
 
 The backend has four main responsibilities:
@@ -67,7 +72,8 @@ From the repository root:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -r requirements.txt
+pip install pytest
 pytest api_backend/tests/test_auth_endpoints.py api_backend/tests/test_storage_endpoints.py api_backend/tests/test_normalized_dashboard.py
 ```
 

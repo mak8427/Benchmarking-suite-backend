@@ -40,6 +40,37 @@ class FakeGrafanaClient:
         return FakeGrafanaResponse()
 
 
+class FakePostgresResult:
+    """Minimal psycopg result used by role-provisioning tests."""
+
+    def __init__(self, row=None) -> None:
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class FakePostgresConnection:
+    """Record SQL issued while provisioning a Grafana datasource role."""
+
+    def __init__(self) -> None:
+        self.statements: list[tuple[str, tuple | None]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def execute(self, statement, params=None):
+        self.statements.append((statement, params))
+        if statement.startswith("SELECT 1 FROM pg_roles"):
+            return FakePostgresResult(None)
+        if statement.startswith("SELECT to_regclass"):
+            return FakePostgresResult((params[0],))
+        return FakePostgresResult()
+
+
 def _dashboard() -> dict:
     client = FakeGrafanaClient()
     provisioner = GrafanaProvisioner(
@@ -281,6 +312,43 @@ def test_grafana_dashboard_groups_node_metrics_by_canonical_jobs() -> None:
         assert " as runs" not in panel_sql
         assert panel["options"]["showValue"] == "always"
         assert panel["fieldConfig"]["defaults"]["custom"]["showValue"] == "always"
+
+
+def test_grafana_role_can_read_every_dashboard_table(monkeypatch) -> None:
+    """A new Grafana role needs SELECT on every table used by its dashboard."""
+    connection = FakePostgresConnection()
+    monkeypatch.setattr(
+        "api_backend.grafana.psycopg.connect",
+        lambda **_kwargs: connection,
+    )
+    provisioner = GrafanaProvisioner(
+        settings=GrafanaSettings(
+            url="http://grafana.local",
+            admin_user="admin",
+            admin_password="secret",
+            postgres_host="postgres",
+            postgres_port="5432",
+            postgres_db="benchmarks",
+            postgres_admin_user="bench_admin",
+            postgres_admin_password="postgres-secret",
+        )
+    )
+
+    provisioner.ensure_postgres_role(
+        user_id="user-1",
+        workspace={
+            "postgres_role": "bench_user_user_1",
+            "postgres_password": "role-secret",
+        },
+    )
+
+    sql = "\n".join(statement for statement, _params in connection.statements)
+    for table_name in (
+        "benchmark_jobs",
+        "benchmark_samples",
+        "benchmark_likwid_samples",
+    ):
+        assert f"GRANT SELECT ON public.{table_name}" in sql
 
 
 def test_trace_panel_sql_renders_text_safe_job_filter() -> None:
