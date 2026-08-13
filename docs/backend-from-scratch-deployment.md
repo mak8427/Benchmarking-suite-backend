@@ -483,21 +483,18 @@ spec:
       port: 7800
       targetPort: 7800
 ---
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
+apiVersion: v1
+kind: Endpoints
 metadata:
   name: bench-api-host
   namespace: default
-  labels:
-    kubernetes.io/service-name: bench-api-host
-addressType: IPv4
-ports:
-  - name: http
-    protocol: TCP
-    port: 7800
-endpoints:
+subsets:
   - addresses:
-      - <INTERNAL_VM_IP>
+      - ip: <INTERNAL_VM_IP>
+    ports:
+      - name: http
+        protocol: TCP
+        port: 7800
 ---
 apiVersion: v1
 kind: Service
@@ -510,21 +507,18 @@ spec:
       port: 3000
       targetPort: 3000
 ---
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
+apiVersion: v1
+kind: Endpoints
 metadata:
   name: grafana-host
   namespace: default
-  labels:
-    kubernetes.io/service-name: grafana-host
-addressType: IPv4
-ports:
-  - name: http
-    protocol: TCP
-    port: 3000
-endpoints:
+subsets:
   - addresses:
-      - <INTERNAL_VM_IP>
+      - ip: <INTERNAL_VM_IP>
+    ports:
+      - name: http
+        protocol: TCP
+        port: 3000
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -564,9 +558,22 @@ Apply and test:
 ```bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl apply -f /home/cloud/benchmarking-suite-routing.yaml
-kubectl get services,endpointslices,ingressroutes,middlewares -n default
+kubectl get services,endpoints,endpointslices,ingressroutes,middlewares -n default
 curl -fsS http://<PUBLIC_IP>/api/healthz
 curl -fsS http://<PUBLIC_IP>/grafana/api/health
+```
+
+These selectorless Services and same-named `Endpoints` objects match the
+verified working instance. K3s mirrors them into generated EndpointSlices for
+Traefik. A Kubernetes 1.33 deprecation warning for the legacy `Endpoints` API
+is expected here; do not replace them with incomplete hand-written
+EndpointSlices. If manual EndpointSlices named `bench-api-host` and
+`grafana-host` were created during an earlier attempt, remove them before
+applying this file:
+
+```bash
+kubectl delete endpointslice bench-api-host grafana-host --ignore-not-found
+kubectl apply -f /home/cloud/benchmarking-suite-routing.yaml
 ```
 
 This establishes HTTP parity. Before production use, assign a DNS name and add
@@ -578,12 +585,75 @@ does not create a trusted certificate. After HTTPS is working, change Grafana's
 export BENCHWRAP_API_URL=https://<DOMAIN>/api
 ```
 
-## 12. Analysis processing and the Kubernetes limitation
+## 12. Analysis processing: upload is automatic, analysis is manual
 
-### Supported clean-install path: run analysis on the host
+> **Important:** following this guide does not enable automatic analysis after
+> an upload. The client can upload directly to S3, but an administrator must
+> run the host-side pipeline before the results appear in PostgreSQL and
+> Grafana. Do not start the webhook listener on a clean installation.
 
-After a user uploads HDF5 objects, process their S3 prefix manually. The prefix
-must be the backend user ID, not the username:
+| Stage | Status after this guide | How it runs |
+| --- | --- | --- |
+| Create the user-scoped upload URL | Automatic | Backend API |
+| Upload the object | Automatic from the client | Presigned PUT directly to S3 |
+| Record object ownership | Automatic when the URL is created | Backend SQLite database |
+| Analyze HDF5 and populate dashboard tables | **Manual** | Host-side pipeline command below |
+| Display processed results | Automatic after analysis | PostgreSQL and Grafana |
+
+### What the existing instance actually does
+
+The existing instance was inspected on 16 July 2026. Its successful analysis
+path is a host-side batch run, not a Kubernetes Job:
+
+- K3s and Traefik route `/api` and `/grafana`, but no successful analysis Job
+  exists in K3s.
+- A MinIO listener process is running from an old interactive SSH session, not
+  from systemd. Its log contains only startup and health requests, with no
+  webhook deliveries or Job launches.
+- The configured S3 bucket has an empty notification configuration, so it
+  cannot currently call the listener when an object is uploaded.
+- The only `duckdb-analysis` Kubernetes Job is an old failed experiment. Its
+  container exited with `ModuleNotFoundError: No module named 'analysis'` while
+  trying to run the outdated image entry point.
+- `analysis-rerun-20260602.log` records a successful host-side run on 2 June
+  2026: 1,000 HDF5 objects were processed in 263.220 seconds.
+- The resulting database state matches that run: 1,000 `benchmark_jobs`,
+  100,094 `benchmark_samples`, and 5,360 `benchmark_likwid_samples`, all for
+  one backend owner. SQLite has no pending HDF5 objects from that batch.
+- There is no cron job or systemd timer scheduling the pipeline.
+
+Do not reproduce the unmanaged listener process or treat the failed Job as a
+deployment component. For a clean installation, use K3s for Traefik and run
+analysis in the backend virtual environment on the host.
+
+### Supported clean-install operation: run analysis on the host
+
+Use this operational sequence whenever a user uploads a new batch:
+
+1. Let the client finish uploading every object in the batch.
+2. Find the user's backend ID.
+3. Run the pipeline for that user's complete S3 prefix.
+4. Confirm the objects and normalized rows were processed.
+5. Check the user's Grafana dashboard.
+
+The prefix must be the backend user ID, not the username. Find it in the API's
+SQLite database:
+
+```bash
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  'SELECT id, username FROM users ORDER BY created_at;'
+```
+
+Check the recorded HDF5 states for that user before starting:
+
+```bash
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  "SELECT state, count(*) FROM storage_objects
+   WHERE user_id='<BACKEND_USER_ID>' AND lower(object_key) LIKE '%.h5'
+   GROUP BY state ORDER BY state;"
+```
+
+Run the prefix-scoped pipeline:
 
 ```bash
 sudo -u cloud bash -lc '
@@ -599,7 +669,29 @@ sudo -u cloud bash -lc '
 
 The first pipeline run downloads DuckDB's PostgreSQL extension, reads matching
 S3 objects, creates raw per-file tables, and upserts the normalized dashboard
-tables.
+tables. It also marks a recorded HDF5 object as `processed` after its normalized
+rows are written. The operation is repeatable: existing raw per-file tables are
+recreated and normalized rows are upserted. It scans the whole selected user
+prefix, not only the most recently uploaded object. Keep the terminal open
+until the log reports `Pipeline completed successfully`; a shell exit alone is
+not proof that every object was processed.
+
+Verify the prefix immediately after the run:
+
+```bash
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  "SELECT state, count(*) FROM storage_objects
+   WHERE user_id='<BACKEND_USER_ID>' AND lower(object_key) LIKE '%.h5'
+   GROUP BY state ORDER BY state;"
+
+sudo -u postgres psql -d benchmarking_suite -c \
+  "SELECT count(*) AS jobs, min(processed_at), max(processed_at)
+   FROM benchmark_jobs WHERE owner_user_id='<BACKEND_USER_ID>';"
+```
+
+If any HDF5 row remains `presigned` or `uploaded`, inspect the pipeline log and
+the corresponding S3 key before rerunning. A `presigned` state alone does not
+prove that an upload reached S3, so compare it with an S3 prefix listing.
 
 ### Why the webhook listener is not enabled by this guide
 
@@ -625,9 +717,15 @@ However, a blank clone does not yet provide a complete production Job setup:
 7. The repository has no ready-to-apply ServiceAccount, Role, RoleBinding,
    Secret, or Job template that resolves these points.
 
-Therefore, K3s is installed and used for Traefik, but automatic webhook Jobs
-must not be described as working from the repository alone. Before enabling
-the listener, add and test:
+The live inspection confirms these are active limitations, not merely
+theoretical concerns. The `cloud` account can currently create arbitrary Jobs
+through the administrator kubeconfig, which is too broad for a webhook-facing
+process, and the local `localhost/duckdb-analysis:latest` image is the stale
+image that produced the failed Job.
+
+Therefore, do not start `analysis_module.minio_listener` on a clean install.
+K3s is required here for Traefik, not for the supported analysis path. Before
+enabling automatic webhook Jobs, implement and test:
 
 - a corrected, versioned analysis image in an accessible registry;
 - a Kubernetes Secret for S3/PostgreSQL settings;
@@ -637,6 +735,10 @@ the listener, add and test:
 - a maintained Job manifest or controller instead of an underspecified
   imperative `kubectl create job` command;
 - authenticated webhook exposure and an S3 notification configuration.
+
+Only after those pieces pass an upload-to-dashboard test should the listener
+be installed as a restricted systemd service and an S3 notification be aimed
+at it.
 
 ## 13. End-to-end validation
 
@@ -697,6 +799,50 @@ sudo -u postgres psql -d benchmarking_suite -c \
 Then log into `http://<PUBLIC_IP>/grafana/` with the same test username and
 password. Confirm the private organization, PostgreSQL datasource, and starter
 dashboard exist.
+
+### Upload-to-dashboard analysis test
+
+Use the real client workflow to upload one small, known-good HDF5 object for
+the test account. The upload URL route records ownership, but uploading to the
+presigned S3 URL does not automatically launch analysis on this deployment.
+
+Get the test account's backend ID and confirm that the object was recorded:
+
+```bash
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  "SELECT id, username FROM users WHERE username='deploymentcheck';"
+
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  "SELECT object_key, state FROM storage_objects
+   WHERE user_id='<BACKEND_USER_ID>' ORDER BY created_at DESC LIMIT 10;"
+```
+
+Run the prefix-scoped host command from section 12. Then require all of the
+following checks to pass:
+
+```bash
+# The uploaded HDF5 object reached the processed lifecycle state.
+sudo -u cloud sqlite3 /var/lib/benchmark-suite/auth.db \
+  "SELECT object_key, state, datetime(processed_at, 'unixepoch') AS processed_utc
+   FROM storage_objects
+   WHERE user_id='<BACKEND_USER_ID>' AND lower(object_key) LIKE '%.h5'
+   ORDER BY created_at DESC LIMIT 10;"
+
+# Normalized PostgreSQL rows are owned by the same backend ID.
+sudo -u postgres psql -d benchmarking_suite -c \
+  "SELECT count(*) AS jobs, min(processed_at), max(processed_at)
+   FROM benchmark_jobs WHERE owner_user_id='<BACKEND_USER_ID>';"
+
+sudo -u postgres psql -d benchmarking_suite -c \
+  "SELECT count(*) AS samples
+   FROM benchmark_samples WHERE owner_user_id='<BACKEND_USER_ID>';"
+```
+
+Finally, refresh the user's Grafana dashboard and select a time range that
+includes the HDF5 measurement or processing timestamp. Confirm that the new
+job is visible and that another user's account cannot see it. This validates
+S3 ingestion, ownership recovery from SQLite, PostgreSQL normalization, RLS,
+the Grafana datasource, and the dashboard together.
 
 ### Reboot test
 
